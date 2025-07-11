@@ -1,0 +1,10 @@
+{
+  "short_name": "Cloud Claude",
+  "name": "Cloud Claude Chat",
+  "description": "A mobile-friendly chat application powered by Claude AI",
+  "icons": [],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#000000",
+  "background_color": "#ffffff"
+}

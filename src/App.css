@@ -1,0 +1,207 @@
+/* App-specific styles that don't belong in index.css */
+
+/* Responsive utilities */
+@media (max-width: 768px) {
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+@media (min-width: 769px) {
+  .show-mobile {
+    display: none !important;
+  }
+}
+
+/* Layout helpers */
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.flex-1 {
+  flex: 1;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.justify-between {
+  justify-content: space-between;
+}
+
+.gap-1 {
+  gap: var(--unit-1);
+}
+
+.gap-2 {
+  gap: var(--unit-2);
+}
+
+.gap-3 {
+  gap: var(--unit-3);
+}
+
+.gap-4 {
+  gap: var(--unit-4);
+}
+
+/* Spacing utilities */
+.p-2 {
+  padding: var(--unit-2);
+}
+
+.p-3 {
+  padding: var(--unit-3);
+}
+
+.p-4 {
+  padding: var(--unit-4);
+}
+
+.px-3 {
+  padding-left: var(--unit-3);
+  padding-right: var(--unit-3);
+}
+
+.px-4 {
+  padding-left: var(--unit-4);
+  padding-right: var(--unit-4);
+}
+
+.py-2 {
+  padding-top: var(--unit-2);
+  padding-bottom: var(--unit-2);
+}
+
+.py-3 {
+  padding-top: var(--unit-3);
+  padding-bottom: var(--unit-3);
+}
+
+.m-0 {
+  margin: 0;
+}
+
+.mt-2 {
+  margin-top: var(--unit-2);
+}
+
+.mt-3 {
+  margin-top: var(--unit-3);
+}
+
+.mt-4 {
+  margin-top: var(--unit-4);
+}
+
+.mb-2 {
+  margin-bottom: var(--unit-2);
+}
+
+.mb-3 {
+  margin-bottom: var(--unit-3);
+}
+
+.mb-4 {
+  margin-bottom: var(--unit-4);
+}
+
+/* Text utilities */
+.text-sm {
+  font-size: 0.875rem;
+}
+
+.text-lg {
+  font-size: 1.125rem;
+}
+
+.font-medium {
+  font-weight: 500;
+}
+
+.font-semibold {
+  font-weight: 600;
+}
+
+.text-center {
+  text-align: center;
+}
+
+/* Color utilities */
+.text-primary {
+  color: var(--primary);
+}
+
+.text-error {
+  color: var(--error);
+}
+
+.text-muted {
+  color: var(--on-surface-variant);
+}
+
+/* Border utilities */
+.rounded {
+  border-radius: var(--unit-2);
+}
+
+.rounded-lg {
+  border-radius: var(--unit-3);
+}
+
+.rounded-full {
+  border-radius: 9999px;
+}
+
+/* Shadow utilities */
+.shadow-sm {
+  box-shadow: 0 1px 2px 0 var(--shadow);
+}
+
+.shadow {
+  box-shadow: 0 1px 3px 0 var(--shadow), 0 1px 2px -1px var(--shadow);
+}
+
+.shadow-md {
+  box-shadow: 0 4px 6px -1px var(--shadow), 0 2px 4px -2px var(--shadow);
+}
+
+/* Animation utilities */
+.transition {
+  transition-property: all;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+.transition-colors {
+  transition-property: color, background-color, border-color;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 150ms;
+}
+
+/* Component-specific overrides */
+.sign-in-container {
+  min-height: calc(100vh - 64px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--unit-4);
+}
+
+.sign-in-card {
+  background-color: var(--surface);
+  padding: var(--unit-8);
+  border-radius: var(--unit-3);
+  box-shadow: 0 4px 6px -1px var(--shadow);
+  max-width: 400px;
+  width: 100%;
+}

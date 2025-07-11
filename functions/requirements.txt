@@ -1,0 +1,5 @@
+functions-framework==3.*
+anthropic[vertex]
+firebase-admin==6.*
+flask-cors==4.*
+httpx
