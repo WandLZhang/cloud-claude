@@ -121,6 +121,18 @@ export const addMessage = async (userId, chatId, message) => {
   }
 };
 
+export const updateChatTitle = async (userId, chatId, newTitle) => {
+  try {
+    await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
+      title: newTitle,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating chat title:', error);
+    throw error;
+  }
+};
+
 export const deleteChat = async (userId, chatId) => {
   try {
     await deleteDoc(doc(db, 'chats', userId, 'conversations', chatId));

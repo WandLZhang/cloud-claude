@@ -40,7 +40,13 @@ export function useChat(userId, selectedChatId = null) {
       
       // Create chat only on first message
       if (!chatId) {
-        chatId = await createChat(userId, { title: 'New Chat' });
+        // Generate title from first message
+        const cleanContent = content.trim().replace(/\n+/g, ' ');
+        const title = cleanContent.length > 40 
+          ? cleanContent.substring(0, 40) + '...' 
+          : cleanContent;
+        
+        chatId = await createChat(userId, { title });
         setCurrentChatId(chatId);
       }
 
