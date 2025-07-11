@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-function ChatInput({ onSendMessage, disabled }) {
+function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..." }) {
   const [message, setMessage] = useState('');
   const [selectedImage, setSelectedImage] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -144,7 +144,7 @@ function ChatInput({ onSendMessage, disabled }) {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type your message..."
+            placeholder={placeholder}
             disabled={disabled}
             className="chat-input"
             rows="1"

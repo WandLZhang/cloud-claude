@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import Header from './components/Layout/Header';
 import ChatInterface from './components/Chat/ChatInterface';
 import SignIn from './components/Auth/SignIn';
+import HomePage from './components/Home/HomePage';
 import LoadingSpinner from './components/Common/LoadingSpinner';
+import { useFirestore } from './hooks/useFirestore';
 import './App.css';
 
 function App() {
@@ -42,13 +43,27 @@ function App() {
     );
   }
 
+  // Create a wrapper component to handle the conditional hook usage
+  if (!user) {
+    return (
+      <div className="app-container">
+        <SignIn />
+      </div>
+    );
+  }
+
+  return <AuthenticatedApp user={user} toggleTheme={toggleTheme} theme={theme} />;
+}
+
+function AuthenticatedApp({ user, toggleTheme, theme }) {
+  const { currentChat } = useFirestore(user.uid);
+
   return (
     <div className="app-container">
-      <Header user={user} onThemeToggle={toggleTheme} theme={theme} />
-      {user ? (
+      {currentChat ? (
         <ChatInterface user={user} />
       ) : (
-        <SignIn />
+        <HomePage user={user} onThemeToggle={toggleTheme} theme={theme} />
       )}
     </div>
   );

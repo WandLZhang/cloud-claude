@@ -12,7 +12,7 @@ function ChatInterface({ user }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const messagesEndRef = useRef(null);
 
-  const { userChats, currentChat, createNewChat, selectChat } = useFirestore(user.uid);
+  const { userChats, currentChat, clearCurrentChat, selectChat } = useFirestore(user.uid);
   const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id);
 
   const scrollToBottom = () => {
@@ -37,15 +37,10 @@ function ChatInterface({ user }) {
     }
   };
 
-  const handleNewChat = async () => {
-    try {
-      const chatId = await createNewChat('New Chat');
-      selectChat({ id: chatId, title: 'New Chat' });
-      setSidebarOpen(false);
-    } catch (err) {
-      console.error('Error creating new chat:', err);
-      setError('Failed to create new chat. Please try again.');
-    }
+  const handleNewChat = () => {
+    // Clear current chat to go back to home page
+    clearCurrentChat();
+    setSidebarOpen(false);
   };
 
   const handleSelectChat = (chat) => {

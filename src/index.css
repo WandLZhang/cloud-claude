@@ -19,6 +19,7 @@ body {
   display: flex;
   flex-direction: column;
   background-color: var(--background);
+  position: relative;
 }
 
 /* Custom scrollbar using Material Design colors */
@@ -246,22 +247,6 @@ body {
   cursor: pointer;
 }
 
-/* Header styles */
-.app-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--unit-3) var(--unit-4);
-  background-color: var(--surface);
-  border-bottom: 1px solid var(--outline-variant);
-  height: 64px;
-}
-
-.app-title {
-  font-size: 1.25rem;
-  font-weight: 500;
-  color: var(--on-surface);
-}
 
 /* User menu */
 .user-menu {

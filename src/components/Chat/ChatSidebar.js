@@ -35,13 +35,13 @@ function ChatSidebar({
 
   return (
     <>
-      {/* Mobile toggle button */}
+      {/* Sidebar toggle button - always visible */}
       <button 
-        className="sidebar-toggle show-mobile"
+        className="sidebar-toggle"
         onClick={onToggle}
         aria-label="Toggle sidebar"
       >
-        <span className="icon">{isOpen ? 'close' : 'menu'}</span>
+        <span className="icon">menu</span>
       </button>
 
       {/* Sidebar */}
