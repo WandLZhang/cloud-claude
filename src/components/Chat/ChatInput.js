@@ -114,11 +114,12 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           style={{
-            border: isDragging ? '2px dashed var(--primary)' : 'none',
-            borderRadius: 'var(--unit-3)',
+            border: 'none',
+            borderRadius: 'var(--unit-6)',
             padding: isDragging ? 'var(--unit-2)' : 0,
             backgroundColor: isDragging ? 'var(--primary-container)' : 'transparent',
-            transition: 'all 0.2s ease'
+            boxShadow: isDragging ? '0 0 0 2px var(--primary)' : 'none',
+            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         >
           <button
