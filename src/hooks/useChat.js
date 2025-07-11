@@ -37,6 +37,7 @@ export function useChat(userId, selectedChatId = null) {
 
     try {
       let chatId = currentChatId;
+      let isNewChat = false;
       
       // Create chat only on first message
       if (!chatId) {
@@ -48,6 +49,7 @@ export function useChat(userId, selectedChatId = null) {
         
         chatId = await createChat(userId, { title });
         setCurrentChatId(chatId);
+        isNewChat = true;
       }
 
       // Add user message
@@ -66,7 +68,32 @@ export function useChat(userId, selectedChatId = null) {
 
       await addMessage(userId, chatId, userMessage);
 
-      // Get Claude's response
+      // If this is a new chat, return immediately so the UI can navigate
+      if (isNewChat) {
+        // Get Claude's response asynchronously (don't wait for it)
+        sendMessageToClaud(messages, content, image).then(async (response) => {
+          // Add Claude's response
+          const assistantMessage = {
+            role: 'assistant',
+            content: response.content,
+            timestamp: new Date(),
+          };
+
+          if (response.thinking) {
+            assistantMessage.thinking = response.thinking;
+          }
+
+          await addMessage(userId, chatId, assistantMessage);
+        }).catch(error => {
+          console.error('Error getting Claude response:', error);
+          // Optionally add an error message to the chat
+        });
+
+        // Return immediately for navigation
+        return { chatId, isNewChat };
+      }
+
+      // For existing chats, wait for Claude's response as before
       const response = await sendMessageToClaud(messages, content, image);
 
       // Add Claude's response
@@ -81,6 +108,8 @@ export function useChat(userId, selectedChatId = null) {
       }
 
       await addMessage(userId, chatId, assistantMessage);
+
+      return { chatId, isNewChat };
 
     } catch (error) {
       console.error('Error sending message:', error);

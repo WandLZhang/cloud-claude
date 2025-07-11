@@ -15,8 +15,24 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
     setIsThinking(true);
     
     try {
-      // sendMessage will create a new chat and the parent component will handle the redirect
-      await sendMessage(content, image);
+      // sendMessage will create a new chat and return the chat ID
+      const result = await sendMessage(content, image);
+      
+      if (result && result.chatId && result.isNewChat) {
+        // Immediately navigate to the new chat with a temporary chat object
+        const tempChat = {
+          id: result.chatId,
+          title: content.trim().length > 40 
+            ? content.trim().substring(0, 40) + '...' 
+            : content.trim(),
+          createdAt: new Date(),
+          lastMessage: content,
+          lastMessageAt: new Date()
+        };
+        
+        // Navigate immediately
+        onSelectChat(tempChat);
+      }
     } catch (err) {
       console.error('Error starting chat:', err);
       setError('Failed to start chat. Please try again.');

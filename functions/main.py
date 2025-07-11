@@ -81,13 +81,20 @@ def chat(request):
                 })
             else:
                 # Regular text message
-                message = {
-                    'role': msg['role'],
-                    'content': msg['content']
+                # Always use content blocks structure for consistency
+                content_block = {
+                    'type': 'text',
+                    'text': msg['content']
                 }
+                
                 # Add caching to assistant messages if enabled
                 if use_cache and msg['role'] == 'assistant' and i < len(messages) - 2:
-                    message['cache_control'] = {'type': 'ephemeral'}
+                    content_block['cache_control'] = {'type': 'ephemeral'}
+                
+                message = {
+                    'role': msg['role'],
+                    'content': [content_block]
+                }
                 all_messages.append(message)
         
         # Prepare the message options with thinking enabled
