@@ -3,9 +3,7 @@ import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import ChatInterface from './components/Chat/ChatInterface';
 import SignIn from './components/Auth/SignIn';
-import HomePage from './components/Home/HomePage';
 import LoadingSpinner from './components/Common/LoadingSpinner';
-import { useFirestore } from './hooks/useFirestore';
 import './App.css';
 
 function App() {
@@ -43,7 +41,6 @@ function App() {
     );
   }
 
-  // Create a wrapper component to handle the conditional hook usage
   if (!user) {
     return (
       <div className="app-container">
@@ -52,19 +49,14 @@ function App() {
     );
   }
 
-  return <AuthenticatedApp user={user} toggleTheme={toggleTheme} theme={theme} />;
-}
-
-function AuthenticatedApp({ user, toggleTheme, theme }) {
-  const { currentChat } = useFirestore(user.uid);
-
+  // Always render ChatInterface when authenticated
   return (
     <div className="app-container">
-      {currentChat ? (
-        <ChatInterface user={user} />
-      ) : (
-        <HomePage user={user} onThemeToggle={toggleTheme} theme={theme} />
-      )}
+      <ChatInterface 
+        user={user} 
+        onThemeToggle={toggleTheme} 
+        theme={theme} 
+      />
     </div>
   );
 }

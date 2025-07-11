@@ -85,3 +85,61 @@
     padding: var(--unit-3);
   }
 }
+
+/* Recent chats section */
+.recent-chats-section {
+  margin-top: var(--unit-6);
+  width: 100%;
+  max-width: 600px;
+}
+
+.recent-chats-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: var(--unit-3);
+  color: var(--text-primary);
+}
+
+.recent-chats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--unit-3);
+}
+
+.recent-chat-card {
+  padding: var(--unit-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--border-radius);
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.recent-chat-card:hover {
+  background: var(--bg-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.dark .recent-chat-card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
+}
+
+.recent-chat-card h4 {
+  font-size: 0.9rem;
+  font-weight: 600;
+  margin: 0 0 var(--unit-1) 0;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-chat-card p {
+  font-size: 0.8rem;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
