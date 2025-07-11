@@ -6,13 +6,21 @@ import {
 } from '../services/firebase';
 import { sendMessageToClaud } from '../services/messageService';
 
-export function useChat(userId) {
+export function useChat(userId, selectedChatId = null) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [currentChatId, setCurrentChatId] = useState(null);
+  const [currentChatId, setCurrentChatId] = useState(selectedChatId);
 
   useEffect(() => {
-    if (!userId || !currentChatId) return;
+    // Update currentChatId when selectedChatId changes
+    setCurrentChatId(selectedChatId);
+  }, [selectedChatId]);
+
+  useEffect(() => {
+    if (!userId || !currentChatId) {
+      setMessages([]);
+      return;
+    }
 
     // Subscribe to messages only if we have a chat ID
     setLoading(true);
@@ -74,10 +82,16 @@ export function useChat(userId) {
     }
   }, [userId, currentChatId, messages]);
 
+  const switchChat = useCallback((chatId) => {
+    setCurrentChatId(chatId);
+    setMessages([]);
+  }, []);
+
   return {
     messages,
     sendMessage,
     loading,
-    currentChatId
+    currentChatId,
+    switchChat
   };
 }

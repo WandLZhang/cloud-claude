@@ -16,11 +16,17 @@ export function useFirestore(userId) {
     // Subscribe to user's chats
     const unsubscribe = subscribeToUserChats(userId, (chats) => {
       setUserChats(chats);
+      
+      // Auto-select the most recent chat if none is selected
+      if (!currentChat && chats.length > 0) {
+        setCurrentChat(chats[0]);
+      }
+      
       setLoading(false);
     });
 
     return () => unsubscribe();
-  }, [userId]);
+  }, [userId, currentChat]);
 
   const createNewChat = useCallback(async (title = 'New Chat') => {
     if (!userId) return;

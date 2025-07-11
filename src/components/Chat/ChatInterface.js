@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
+import ChatSidebar from './ChatSidebar';
 import { useChat } from '../../hooks/useChat';
 import { useFirestore } from '../../hooks/useFirestore';
+import './ChatInterface.css';
 
 function ChatInterface({ user }) {
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState('');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const messagesEndRef = useRef(null);
 
-  const { messages, sendMessage, loading } = useChat(user.uid);
-  const { currentChat, createNewChat } = useFirestore(user.uid);
+  const { userChats, currentChat, createNewChat, selectChat } = useFirestore(user.uid);
+  const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -34,26 +37,53 @@ function ChatInterface({ user }) {
     }
   };
 
+  const handleNewChat = async () => {
+    try {
+      const chatId = await createNewChat('New Chat');
+      selectChat({ id: chatId, title: 'New Chat' });
+      setSidebarOpen(false);
+    } catch (err) {
+      console.error('Error creating new chat:', err);
+      setError('Failed to create new chat. Please try again.');
+    }
+  };
+
+  const handleSelectChat = (chat) => {
+    selectChat(chat);
+    setSidebarOpen(false);
+  };
+
   return (
-    <div className="chat-container">
-      <MessageList 
-        messages={messages} 
-        isThinking={isThinking}
-        loading={loading}
+    <div className="chat-interface-wrapper">
+      <ChatSidebar
+        userChats={userChats}
+        currentChatId={currentChat?.id}
+        onSelectChat={handleSelectChat}
+        onNewChat={handleNewChat}
+        isOpen={sidebarOpen}
+        onToggle={() => setSidebarOpen(!sidebarOpen)}
       />
-      <div ref={messagesEndRef} />
       
-      {error && (
-        <div className="error-message mx-4 mb-2">
-          <span className="icon">error</span>
-          <span>{error}</span>
-        </div>
-      )}
-      
-      <ChatInput 
-        onSendMessage={handleSendMessage}
-        disabled={loading || isThinking}
-      />
+      <div className="chat-container">
+        <MessageList 
+          messages={messages} 
+          isThinking={isThinking}
+          loading={loading}
+        />
+        <div ref={messagesEndRef} />
+        
+        {error && (
+          <div className="error-message mx-4 mb-2">
+            <span className="icon">error</span>
+            <span>{error}</span>
+          </div>
+        )}
+        
+        <ChatInput 
+          onSendMessage={handleSendMessage}
+          disabled={loading || isThinking}
+        />
+      </div>
     </div>
   );
 }
