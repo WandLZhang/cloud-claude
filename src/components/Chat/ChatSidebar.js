@@ -210,6 +210,13 @@ function ChatSidebar({
                         <div className="chat-hover-actions hide-mobile">
                           <button
                             className="icon-button small"
+                            onClick={(e) => handleStarClick(e, chat)}
+                            title={chat.isStarred ? "Unstar chat" : "Star chat"}
+                          >
+                            <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
+                          </button>
+                          <button
+                            className="icon-button small"
                             onClick={(e) => handleEditClick(e, chat)}
                             title="Rename chat"
                           >
