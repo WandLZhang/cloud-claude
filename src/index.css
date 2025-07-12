@@ -91,6 +91,8 @@ body {
   word-wrap: break-word;
   font-size: 0.875rem;
   line-height: 1.5;
+  position: relative;
+  overflow: visible;
 }
 
 .message-user .message-bubble {

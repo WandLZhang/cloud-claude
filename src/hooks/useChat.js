@@ -21,17 +21,31 @@ export function useChat(userId, selectedChatId = null) {
   useEffect(() => {
     if (!userId || !currentChatId) {
       setMessages([]);
+      setLoading(false);
       return;
     }
 
-    // Subscribe to messages only if we have a chat ID
+    // Clear messages and set loading state when switching chats
+    setMessages([]);
     setLoading(true);
-    const unsubscribe = subscribeToChat(userId, currentChatId, (messages) => {
-      setMessages(messages);
-      setLoading(false);
-    });
+    
+    let unsubscribe = null;
+    
+    // Add a small delay to ensure proper cleanup
+    const timeoutId = setTimeout(() => {
+      // Subscribe to messages only if we have a chat ID
+      unsubscribe = subscribeToChat(userId, currentChatId, (messages) => {
+        setMessages(messages);
+        setLoading(false);
+      });
+    }, 50);
 
-    return () => unsubscribe();
+    return () => {
+      clearTimeout(timeoutId);
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, [userId, currentChatId]);
 
   const sendMessage = useCallback(async (content, image) => {
@@ -182,9 +196,12 @@ export function useChat(userId, selectedChatId = null) {
   }, [userId, currentChatId, messages]);
 
   const switchChat = useCallback((chatId) => {
-    setCurrentChatId(chatId);
-    setMessages([]);
-  }, []);
+    if (chatId !== currentChatId) {
+      setMessages([]);
+      setLoading(true);
+      setCurrentChatId(chatId);
+    }
+  }, [currentChatId]);
 
   return {
     messages,

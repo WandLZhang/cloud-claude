@@ -1,0 +1,102 @@
+.export-menu-wrapper {
+  position: relative;
+  display: inline-block;
+  z-index: 10;
+}
+
+.export-menu-button {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.message-bubble:hover .export-menu-button {
+  opacity: 1;
+}
+
+.export-menu-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.export-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--unit-1);
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: var(--unit-2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-width: 200px;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.export-menu-dropdown .menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--unit-2);
+  width: 100%;
+  padding: var(--unit-2) var(--unit-3);
+  border: none;
+  background: none;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.export-menu-dropdown .menu-item:hover {
+  background-color: var(--bg-secondary);
+}
+
+.export-menu-dropdown .menu-item:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.export-menu-dropdown .menu-item .icon {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+.export-status {
+  position: absolute;
+  top: calc(100% + var(--unit-1));
+  right: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: var(--unit-1);
+  padding: var(--unit-1) var(--unit-2);
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  animation: fadeIn 0.2s ease;
+  z-index: 9999;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Dark mode support */
+[data-theme="dark"] .export-menu-dropdown {
+  background: var(--bg-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .export-menu-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+[data-theme="dark"] .export-status {
+  background: var(--bg-secondary);
+}
