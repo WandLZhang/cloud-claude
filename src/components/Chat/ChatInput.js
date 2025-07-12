@@ -39,6 +39,12 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
 
   const handleImageSelect = (file) => {
     if (file && file.type.startsWith('image/')) {
+      // Check if file has actual content
+      if (file.size === 0) {
+        alert('This image is not accessible. Please download it to your device first.');
+        return;
+      }
+      
       const reader = new FileReader();
       reader.onload = (e) => {
         setSelectedImage({
@@ -46,6 +52,10 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
           url: e.target.result,
           type: file.type
         });
+      };
+      reader.onerror = (error) => {
+        console.error('Error reading image:', error);
+        alert('Unable to read this image. If it\'s from Google Photos or another cloud service, please download it to your device first.');
       };
       reader.readAsDataURL(file);
     }

@@ -133,12 +133,14 @@ def chat(request):
                             'media_type': image_data['media_type'],
                             'data': image_data['data']
                         }
-                    },
-                    {
-                        'type': 'text',
-                        'text': msg['content']
                     }
                 ]
+                # Only add text content if it's not empty
+                if msg['content'] and msg['content'].strip():
+                    message_content.append({
+                        'type': 'text',
+                        'text': msg['content']
+                    })
                 all_messages.append({
                     'role': msg['role'],
                     'content': message_content

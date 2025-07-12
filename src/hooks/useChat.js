@@ -49,7 +49,7 @@ export function useChat(userId, selectedChatId = null) {
   }, [userId, currentChatId]);
 
   const sendMessage = useCallback(async (content, image) => {
-    if (!userId || !content.trim()) return;
+    if (!userId || (!content.trim() && !image)) return;
 
     try {
       let chatId = currentChatId;
@@ -58,10 +58,15 @@ export function useChat(userId, selectedChatId = null) {
       // Create chat only on first message
       if (!chatId) {
         // Generate title from first message
-        const cleanContent = content.trim().replace(/\n+/g, ' ');
-        const title = cleanContent.length > 40 
-          ? cleanContent.substring(0, 40) + '...' 
-          : cleanContent;
+        let title = 'New Chat';
+        if (content && content.trim()) {
+          const cleanContent = content.trim().replace(/\n+/g, ' ');
+          title = cleanContent.length > 40 
+            ? cleanContent.substring(0, 40) + '...' 
+            : cleanContent;
+        } else if (image) {
+          title = 'Image Chat';
+        }
         
         chatId = await createChat(userId, { title });
         setCurrentChatId(chatId);
@@ -107,7 +112,7 @@ export function useChat(userId, selectedChatId = null) {
             let finalResponse = null;
 
             // Stream the response
-            const stream = streamMessageToClaud(messages, content, userMessage.image);
+            const stream = streamMessageToClaud(messages, content || '', userMessage.image);
             
             for await (const data of stream) {
               if (data.type === 'chunk') {
@@ -159,7 +164,7 @@ export function useChat(userId, selectedChatId = null) {
       let finalResponse = null;
 
       // Stream the response
-      const stream = streamMessageToClaud(messages, content, userMessage.image);
+      const stream = streamMessageToClaud(messages, content || '', userMessage.image);
       
       for await (const data of stream) {
         if (data.type === 'chunk') {
