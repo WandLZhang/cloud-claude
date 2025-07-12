@@ -24,14 +24,21 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
   const handleSubmit = (e) => {
     e.preventDefault();
     if ((message.trim() || selectedImage) && !disabled) {
-      onSendMessage(message.trim(), selectedImage);
+      const messageToSend = message.trim();
+      const imageToSend = selectedImage;
+      
+      // Clear state immediately before sending
       setMessage('');
       setSelectedImage(null);
       
       // Reset textarea height
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
+        textareaRef.current.value = ''; // Force clear the textarea value
       }
+      
+      // Send the message after clearing state
+      onSendMessage(messageToSend, imageToSend);
     }
   };
 

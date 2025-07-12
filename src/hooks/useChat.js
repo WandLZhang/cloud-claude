@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   subscribeToChat, 
   addMessage, 
@@ -12,6 +12,12 @@ export function useChat(userId, selectedChatId = null) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentChatId, setCurrentChatId] = useState(selectedChatId);
+  const messagesRef = useRef([]);
+  
+  // Keep messagesRef in sync with messages state
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   useEffect(() => {
     // Update currentChatId when selectedChatId changes
@@ -30,18 +36,30 @@ export function useChat(userId, selectedChatId = null) {
     setLoading(true);
     
     let unsubscribe = null;
+    let updateTimeoutId = null;
     
     // Add a small delay to ensure proper cleanup
     const timeoutId = setTimeout(() => {
       // Subscribe to messages only if we have a chat ID
-      unsubscribe = subscribeToChat(userId, currentChatId, (messages) => {
-        setMessages(messages);
-        setLoading(false);
+      unsubscribe = subscribeToChat(userId, currentChatId, (newMessages) => {
+        // Clear any pending update
+        if (updateTimeoutId) {
+          clearTimeout(updateTimeoutId);
+        }
+        
+        // Debounce rapid updates to prevent rendering issues
+        updateTimeoutId = setTimeout(() => {
+          setMessages(newMessages);
+          setLoading(false);
+        }, 10);
       });
     }, 50);
 
     return () => {
       clearTimeout(timeoutId);
+      if (updateTimeoutId) {
+        clearTimeout(updateTimeoutId);
+      }
       if (unsubscribe) {
         unsubscribe();
       }
@@ -54,6 +72,9 @@ export function useChat(userId, selectedChatId = null) {
     try {
       let chatId = currentChatId;
       let isNewChat = false;
+      
+      // Use the latest messages from ref to avoid stale closure
+      const currentMessages = messagesRef.current;
       
       // Create chat only on first message
       if (!chatId) {
@@ -111,8 +132,8 @@ export function useChat(userId, selectedChatId = null) {
             let fullContent = '';
             let finalResponse = null;
 
-            // Stream the response
-            const stream = streamMessageToClaud(messages, content || '', userMessage.image);
+            // Stream the response - use current messages from ref
+            const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image);
             
             for await (const data of stream) {
               if (data.type === 'chunk') {
@@ -163,8 +184,8 @@ export function useChat(userId, selectedChatId = null) {
       let fullContent = '';
       let finalResponse = null;
 
-      // Stream the response
-      const stream = streamMessageToClaud(messages, content || '', userMessage.image);
+      // Stream the response - use current messages from ref
+      const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image);
       
       for await (const data of stream) {
         if (data.type === 'chunk') {
@@ -198,7 +219,7 @@ export function useChat(userId, selectedChatId = null) {
       console.error('Error sending message:', error);
       throw error;
     }
-  }, [userId, currentChatId, messages]);
+  }, [userId, currentChatId]);
 
   const switchChat = useCallback((chatId) => {
     if (chatId !== currentChatId) {

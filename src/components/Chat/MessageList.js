@@ -25,9 +25,9 @@ function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteM
         </div>
       ) : (
         <>
-          {messages.map((message) => (
+          {messages.map((message, index) => (
             <MessageItem 
-              key={message.id} 
+              key={`${message.id}-${index}`} 
               message={message}
               onUpdateMessage={onUpdateMessage}
               onDeleteMessage={onDeleteMessage}
