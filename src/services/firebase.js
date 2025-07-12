@@ -165,6 +165,35 @@ export const deleteChat = async (userId, chatId) => {
   }
 };
 
+export const toggleChatStar = async (userId, chatId, isStarred) => {
+  try {
+    await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
+      isStarred: isStarred,
+      starredAt: isStarred ? serverTimestamp() : null,
+      updatedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error toggling chat star:', error);
+    throw error;
+  }
+};
+
+export const getStarredChats = async (userId) => {
+  try {
+    const chatsRef = collection(db, 'chats', userId, 'conversations');
+    const q = query(
+      chatsRef, 
+      where('isStarred', '==', true), 
+      orderBy('starredAt', 'desc')
+    );
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error getting starred chats:', error);
+    return [];
+  }
+};
+
 // Real-time listeners
 export const subscribeToChat = (userId, chatId, callback) => {
   const messagesRef = collection(db, 'chats', userId, 'conversations', chatId, 'messages');

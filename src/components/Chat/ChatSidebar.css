@@ -357,3 +357,59 @@
   background: linear-gradient(135deg, var(--surface-container), var(--surface-container-high));
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
+
+/* Starred Chats Section */
+.starred-chats-section {
+  padding: var(--unit-4) var(--unit-2) var(--unit-2) var(--unit-2);
+}
+
+.starred-chats-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--unit-2);
+  padding: var(--unit-3);
+  background-color: var(--surface-container);
+  border: 1px solid transparent;
+  border-radius: var(--unit-2);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--on-surface);
+  transition: all 0.2s ease;
+}
+
+.starred-chats-button:hover {
+  background-color: var(--surface-container-high);
+  border-color: var(--outline-variant);
+}
+
+.starred-chats-button .icon {
+  font-size: 20px;
+  color: var(--primary);
+}
+
+.starred-chats-button .chevron {
+  margin-left: auto;
+  font-size: 18px;
+  color: var(--on-surface-variant);
+}
+
+/* Starred icon in chat items */
+.chat-title-row {
+  display: flex;
+  align-items: center;
+  gap: var(--unit-1);
+}
+
+.chat-title-row h3 {
+  flex: 1;
+  min-width: 0;
+}
+
+.starred-icon {
+  font-size: 14px;
+  color: var(--primary);
+  flex-shrink: 0;
+}

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { updateChatTitle, deleteChat } from '../../services/firebase';
+import { updateChatTitle, deleteChat, toggleChatStar } from '../../services/firebase';
 import { auth } from '../../services/firebase';
 import './ChatSidebar.css';
 
@@ -9,7 +9,8 @@ function ChatSidebar({
   onSelectChat, 
   onNewChat,
   isOpen,
-  onToggle 
+  onToggle,
+  onStarredChatsClick 
 }) {
   const [editingChatId, setEditingChatId] = useState(null);
   const [editingTitle, setEditingTitle] = useState('');
@@ -78,6 +79,16 @@ function ChatSidebar({
     }
   };
 
+  const handleStarClick = async (e, chat) => {
+    e.stopPropagation();
+    try {
+      await toggleChatStar(auth.currentUser.uid, chat.id, !chat.isStarred);
+      setOpenMenuChatId(null);
+    } catch (error) {
+      console.error('Failed to star/unstar chat:', error);
+    }
+  };
+
   const handleKeyDown = (e, chatId) => {
     if (e.key === 'Enter') {
       handleSaveEdit(e, chatId);
@@ -116,6 +127,18 @@ function ChatSidebar({
 
       {/* Sidebar */}
       <div className={`chat-sidebar ${isOpen ? 'open' : ''}`}>
+        {/* Starred Chats Section */}
+        <div className="starred-chats-section">
+          <button 
+            className="starred-chats-button"
+            onClick={onStarredChatsClick}
+          >
+            <span className="icon">star</span>
+            <span>Starred Chats</span>
+            <span className="icon chevron">chevron_right</span>
+          </button>
+        </div>
+        
         <div className="chat-list">
           {userChats.length === 0 ? (
             <div className="empty-state">
@@ -149,7 +172,10 @@ function ChatSidebar({
                     />
                   ) : (
                     <>
-                      <h3>{truncateText(chat.title || 'New Chat', 30)}</h3>
+                      <div className="chat-title-row">
+                        <h3>{truncateText(chat.title || 'New Chat', 30)}</h3>
+                        {chat.isStarred && <span className="icon starred-icon">star</span>}
+                      </div>
                       <p className="chat-preview">
                         {truncateText(chat.lastMessage || 'No messages yet')}
                       </p>
@@ -212,6 +238,13 @@ function ChatSidebar({
                         {/* Dropdown menu */}
                         {openMenuChatId === chat.id && (
                           <div className="chat-menu-dropdown">
+                            <button
+                              className="menu-item"
+                              onClick={(e) => handleStarClick(e, chat)}
+                            >
+                              <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
+                              <span>{chat.isStarred ? 'Unstar' : 'Star'}</span>
+                            </button>
                             <button
                               className="menu-item"
                               onClick={(e) => {
