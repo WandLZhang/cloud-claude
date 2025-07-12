@@ -121,10 +121,38 @@ def chat(request):
         # Prepare messages (excluding system prompt)
         all_messages = []
         
+        # First pass: collect assistant message indices with content
+        assistant_indices = []
+        for i, msg in enumerate(messages):
+            if msg['role'] == 'assistant' and msg.get('content', '').strip():
+                assistant_indices.append(i)
+        
+        # Determine which assistant messages to cache (last 2, to leave room for system prompt)
+        # We have max 4 cache blocks, 1 is used by system prompt, so we can cache up to 3 assistant messages
+        # But to be safe, we'll cache only the last 2 assistant messages
+        max_cached_assistant_messages = 2
+        cached_assistant_indices = set(assistant_indices[-max_cached_assistant_messages:]) if assistant_indices else set()
+        
+        print(f"Assistant message indices: {assistant_indices}")
+        print(f"Will cache assistant messages at indices: {cached_assistant_indices}")
+        
         # Process regular messages
         for i, msg in enumerate(messages):
+            print(f"Processing message {i}: role={msg['role']}, content_length={len(msg.get('content', ''))}, has_content={bool(msg.get('content', '').strip())}")
+            
+            # Skip messages that have no content and are not the last message with an image
+            if not msg.get('content') or not msg['content'].strip():
+                # Check if this is the last message and we have an image
+                if i == len(messages) - 1 and image_data:
+                    print(f"Message {i}: Last message with image, keeping despite empty content")
+                    # Continue processing this message
+                else:
+                    print(f"Message {i}: Skipping empty message (no content, not last with image)")
+                    continue
+            
             # If this is the last message and we have an image, combine them
             if i == len(messages) - 1 and image_data:
+                print(f"Message {i}: Processing last message with image")
                 message_content = [
                     {
                         'type': 'image',
@@ -137,31 +165,44 @@ def chat(request):
                 ]
                 # Only add text content if it's not empty
                 if msg['content'] and msg['content'].strip():
+                    print(f"Message {i}: Adding text content with image")
                     message_content.append({
                         'type': 'text',
                         'text': msg['content']
                     })
+                else:
+                    print(f"Message {i}: Image-only message (no text content)")
+                    
                 all_messages.append({
                     'role': msg['role'],
                     'content': message_content
                 })
             else:
                 # Regular text message
-                # Always use content blocks structure for consistency
+                print(f"Message {i}: Processing regular text message")
                 content_block = {
                     'type': 'text',
                     'text': msg['content']
                 }
                 
-                # Add caching to assistant messages if enabled
-                if use_cache and msg['role'] == 'assistant' and i < len(messages) - 2:
-                    content_block['cache_control'] = {'type': 'ephemeral'}
+                # Add caching to assistant messages if enabled, content is not empty, and it's one of the selected messages
+                if use_cache and msg['role'] == 'assistant' and i in cached_assistant_indices:
+                    if msg['content'].strip():  # Only add cache control if content is not empty
+                        print(f"Message {i}: Adding cache control to assistant message (one of last {max_cached_assistant_messages})")
+                        content_block['cache_control'] = {'type': 'ephemeral'}
+                    else:
+                        print(f"Message {i}: Skipping cache control for empty assistant message")
+                elif msg['role'] == 'assistant' and i not in cached_assistant_indices and use_cache:
+                    print(f"Message {i}: Assistant message not selected for caching (keeping only last {max_cached_assistant_messages})")
                 
                 message = {
                     'role': msg['role'],
                     'content': [content_block]
                 }
                 all_messages.append(message)
+        
+        print(f"Total messages after processing: {len(all_messages)}")
+        print(f"Total cache blocks used: 1 (system) + {len(cached_assistant_indices)} (assistant messages) = {1 + len(cached_assistant_indices)}")
         
         # Prepare the message options with thinking enabled
         message_options = {
@@ -176,12 +217,16 @@ def chat(request):
         
         # Add system prompt as top-level parameter if provided
         if system_prompt:
+            print(f"Adding system prompt, length={len(system_prompt)}, use_cache={use_cache}")
             system_content = {
                 'type': 'text',
                 'text': system_prompt
             }
-            if use_cache:
+            if use_cache and system_prompt.strip():  # Only add cache control if content is not empty
+                print("Adding cache control to system prompt")
                 system_content['cache_control'] = {'type': 'ephemeral'}
+            elif use_cache and not system_prompt.strip():
+                print("Warning: System prompt is empty, skipping cache control")
             message_options['system'] = [system_content]
         
         # Create a generator for streaming response
