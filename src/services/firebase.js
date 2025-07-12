@@ -105,7 +105,7 @@ export const getUserChats = async (userId) => {
 export const addMessage = async (userId, chatId, message) => {
   try {
     // Add message to subcollection
-    await addDoc(collection(db, 'chats', userId, 'conversations', chatId, 'messages'), {
+    const docRef = await addDoc(collection(db, 'chats', userId, 'conversations', chatId, 'messages'), {
       ...message,
       timestamp: serverTimestamp()
     });
@@ -115,8 +115,31 @@ export const addMessage = async (userId, chatId, message) => {
       lastMessage: message.content,
       updatedAt: serverTimestamp()
     });
+    
+    return docRef.id;
   } catch (error) {
     console.error('Error adding message:', error);
+    throw error;
+  }
+};
+
+export const updateMessage = async (userId, chatId, messageId, updates) => {
+  try {
+    // Update message in subcollection
+    await updateDoc(
+      doc(db, 'chats', userId, 'conversations', chatId, 'messages', messageId), 
+      updates
+    );
+    
+    // If content is being updated, also update the chat's last message
+    if (updates.content !== undefined) {
+      await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
+        lastMessage: updates.content,
+        updatedAt: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    console.error('Error updating message:', error);
     throw error;
   }
 };

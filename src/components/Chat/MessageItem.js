@@ -6,6 +6,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 
 function MessageItem({ message }) {
   const isUser = message.role === 'user';
+  const isStreaming = message.isStreaming;
 
   const components = {
     code({ node, inline, className, children, ...props }) {
@@ -55,29 +56,19 @@ function MessageItem({ message }) {
               remarkPlugins={[remarkGfm]}
               components={components}
             >
-              {message.content}
+              {message.content || ''}
             </ReactMarkdown>
+            {isStreaming && !message.content && (
+              <div className="typing-indicator-wrapper">
+                <div className="typing-text">Claude is thinking</div>
+                <div className="typing-indicator">
+                  <span></span>
+                  <span></span>
+                  <span></span>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-        {message.thinking && (
-          <details style={{ marginTop: 'var(--unit-3)' }}>
-            <summary style={{ cursor: 'pointer', color: 'var(--on-surface-variant)' }}>
-              <span className="icon" style={{ fontSize: '14px', marginRight: 'var(--unit-1)' }}>
-                psychology
-              </span>
-              Claude's thinking process
-            </summary>
-            <div style={{ 
-              marginTop: 'var(--unit-2)', 
-              padding: 'var(--unit-3)',
-              backgroundColor: 'var(--surface-container-low)',
-              borderRadius: 'var(--unit-2)',
-              fontSize: '0.9em',
-              whiteSpace: 'pre-wrap'
-            }}>
-              {message.thinking}
-            </div>
-          </details>
         )}
       </div>
     </div>

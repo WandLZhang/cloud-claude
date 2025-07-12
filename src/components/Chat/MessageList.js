@@ -28,16 +28,6 @@ function MessageList({ messages, isThinking, loading }) {
           {messages.map((message) => (
             <MessageItem key={message.id} message={message} />
           ))}
-          {isThinking && (
-            <div className="message message-assistant">
-              <div className="message-bubble">
-                <div className="thinking-indicator">
-                  <span className="icon">psychology</span>
-                  <span>Claude is thinking...</span>
-                </div>
-              </div>
-            </div>
-          )}
         </>
       )}
     </div>

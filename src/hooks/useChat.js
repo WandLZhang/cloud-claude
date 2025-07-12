@@ -2,9 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { 
   subscribeToChat, 
   addMessage, 
-  createChat 
+  createChat,
+  updateMessage
 } from '../services/firebase';
-import { sendMessageToClaud } from '../services/messageService';
+import { streamMessageToClaud } from '../services/messageService';
 
 export function useChat(userId, selectedChatId = null) {
   const [messages, setMessages] = useState([]);
@@ -70,44 +71,102 @@ export function useChat(userId, selectedChatId = null) {
 
       // If this is a new chat, return immediately so the UI can navigate
       if (isNewChat) {
-        // Get Claude's response asynchronously (don't wait for it)
-        sendMessageToClaud(messages, content, image).then(async (response) => {
-          // Add Claude's response
-          const assistantMessage = {
-            role: 'assistant',
-            content: response.content,
-            timestamp: new Date(),
-          };
+        // Stream Claude's response asynchronously (don't wait for it)
+        (async () => {
+          try {
+            // Add placeholder message
+            const assistantMessage = {
+              role: 'assistant',
+              content: '',
+              timestamp: new Date(),
+              isStreaming: true
+            };
 
-          if (response.thinking) {
-            assistantMessage.thinking = response.thinking;
+            const messageId = await addMessage(userId, chatId, assistantMessage);
+            
+            let fullContent = '';
+            let finalResponse = null;
+
+            // Stream the response
+            const stream = streamMessageToClaud(messages, content, image);
+            
+            for await (const data of stream) {
+              if (data.type === 'chunk') {
+                fullContent += data.text;
+                // Update the message in Firebase with accumulated content
+                await updateMessage(userId, chatId, messageId, {
+                  content: fullContent,
+                  isStreaming: true
+                });
+              } else if (data.type === 'done') {
+                finalResponse = data;
+              }
+            }
+
+            // Final update with complete message
+            const finalUpdate = {
+              content: finalResponse?.content || fullContent,
+              isStreaming: false,
+              timestamp: new Date()
+            };
+
+            if (finalResponse?.thinking) {
+              finalUpdate.thinking = finalResponse.thinking;
+            }
+
+            await updateMessage(userId, chatId, messageId, finalUpdate);
+          } catch (error) {
+            console.error('Error getting Claude response:', error);
+            // Optionally add an error message to the chat
           }
-
-          await addMessage(userId, chatId, assistantMessage);
-        }).catch(error => {
-          console.error('Error getting Claude response:', error);
-          // Optionally add an error message to the chat
-        });
+        })();
 
         // Return immediately for navigation
         return { chatId, isNewChat };
       }
 
-      // For existing chats, wait for Claude's response as before
-      const response = await sendMessageToClaud(messages, content, image);
-
-      // Add Claude's response
+      // For existing chats, stream Claude's response
+      // First add a placeholder message
       const assistantMessage = {
         role: 'assistant',
-        content: response.content,
+        content: '',
         timestamp: new Date(),
+        isStreaming: true
       };
 
-      if (response.thinking) {
-        assistantMessage.thinking = response.thinking;
+      const messageId = await addMessage(userId, chatId, assistantMessage);
+      
+      let fullContent = '';
+      let finalResponse = null;
+
+      // Stream the response
+      const stream = streamMessageToClaud(messages, content, image);
+      
+      for await (const data of stream) {
+        if (data.type === 'chunk') {
+          fullContent += data.text;
+          // Update the message in Firebase with accumulated content
+          await updateMessage(userId, chatId, messageId, {
+            content: fullContent,
+            isStreaming: true
+          });
+        } else if (data.type === 'done') {
+          finalResponse = data;
+        }
       }
 
-      await addMessage(userId, chatId, assistantMessage);
+      // Final update with complete message
+      const finalUpdate = {
+        content: finalResponse?.content || fullContent,
+        isStreaming: false,
+        timestamp: new Date()
+      };
+
+      if (finalResponse?.thinking) {
+        finalUpdate.thinking = finalResponse.thinking;
+      }
+
+      await updateMessage(userId, chatId, messageId, finalUpdate);
 
       return { chatId, isNewChat };
 

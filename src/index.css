@@ -106,12 +106,29 @@ body {
 }
 
 /* Loading dots animation */
-.loading-dots {
+.loading-dots,
+.typing-indicator {
   display: inline-flex;
   gap: var(--unit-1);
 }
 
-.loading-dots span {
+/* Typing indicator wrapper */
+.typing-indicator-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--unit-1);
+}
+
+.typing-text {
+  font-size: 0.75rem;
+  color: var(--on-surface-variant);
+  opacity: 0.7;
+  letter-spacing: 0.025em;
+}
+
+.loading-dots span,
+.typing-indicator span {
   width: var(--unit-2);
   height: var(--unit-2);
   border-radius: 50%;
@@ -130,39 +147,21 @@ body {
   }
 }
 
-.loading-dots span:nth-child(1) {
+.loading-dots span:nth-child(1),
+.typing-indicator span:nth-child(1) {
   animation-delay: -0.32s;
 }
 
-.loading-dots span:nth-child(2) {
+.loading-dots span:nth-child(2),
+.typing-indicator span:nth-child(2) {
   animation-delay: -0.16s;
 }
 
-.loading-dots span:nth-child(3) {
+.loading-dots span:nth-child(3),
+.typing-indicator span:nth-child(3) {
   animation-delay: 0s;
 }
 
-/* Thinking indicator */
-.thinking-indicator {
-  display: flex;
-  align-items: center;
-  gap: var(--unit-2);
-  padding: var(--unit-2) var(--unit-3);
-  background-color: var(--surface-container-low);
-  border-radius: var(--unit-2);
-  color: var(--on-surface-variant);
-  font-size: 0.875rem;
-  margin-bottom: var(--unit-2);
-}
-
-.thinking-indicator .icon {
-  animation: spin 2s linear infinite;
-}
-
-@keyframes spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 /* Mobile optimizations */
 @media (max-width: 768px) {

@@ -1,8 +1,6 @@
-import axios from 'axios';
-
 const CLOUD_FUNCTION_URL = process.env.REACT_APP_CLOUD_FUNCTION_URL;
 
-export async function sendMessageToClaud(previousMessages, newContent, image) {
+export async function* streamMessageToClaud(previousMessages, newContent, image) {
   try {
     // Prepare messages array for Claude
     const messages = previousMessages.map(msg => ({
@@ -37,63 +35,91 @@ export async function sendMessageToClaud(previousMessages, newContent, image) {
       };
     }
 
-    // Call the Cloud Function
-    const response = await axios.post(CLOUD_FUNCTION_URL, payload, {
+    // Use fetch for streaming support
+    const response = await fetch(CLOUD_FUNCTION_URL, {
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
-      }
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload)
     });
 
-    if (response.data.error) {
-      throw new Error(response.data.error);
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
     }
 
-    return {
-      content: response.data.content,
-      thinking: response.data.thinking,
-      usage: response.data.usage,
-      cached: response.data.cached
-    };
+    // Read the streaming response
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalData = null;
 
-  } catch (error) {
-    console.error('Error calling Claude API:', error);
-    throw new Error(error.response?.data?.error || error.message || 'Failed to get response from Claude');
-  }
-}
-
-// Simulate streaming for better UX (optional enhancement)
-export async function* streamMessageToClaud(previousMessages, newContent, image) {
-  try {
-    const response = await sendMessageToClaud(previousMessages, newContent, image);
-    
-    // Simulate streaming by yielding chunks
-    const chunks = response.chunks || [];
-    
-    if (chunks.length > 0) {
-      // If we have chunks from the backend, use them
-      for (const chunk of chunks) {
-        yield chunk.text;
-        await new Promise(resolve => setTimeout(resolve, 10)); // Small delay for effect
-      }
-    } else {
-      // Otherwise, simulate chunking the full response
-      const words = response.content.split(' ');
-      let currentChunk = '';
+    while (true) {
+      const { done, value } = await reader.read();
       
-      for (let i = 0; i < words.length; i++) {
-        currentChunk += words[i] + ' ';
-        
-        // Yield chunks of ~5 words
-        if (i % 5 === 0 || i === words.length - 1) {
-          yield currentChunk;
-          currentChunk = '';
-          await new Promise(resolve => setTimeout(resolve, 30));
+      if (done) break;
+      
+      // Decode the chunk and add to buffer
+      buffer += decoder.decode(value, { stream: true });
+      
+      // Process complete SSE events
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || ''; // Keep incomplete line in buffer
+      
+      for (const line of lines) {
+        if (line.startsWith('data: ')) {
+          const data = line.slice(6); // Remove 'data: ' prefix
+          
+          if (data.trim()) {
+            try {
+              const parsed = JSON.parse(data);
+              
+              if (parsed.type === 'chunk') {
+                yield { type: 'chunk', text: parsed.text };
+              } else if (parsed.type === 'done') {
+                finalData = parsed;
+              } else if (parsed.type === 'error') {
+                throw new Error(parsed.error);
+              }
+            } catch (e) {
+              console.error('Failed to parse SSE data:', e);
+            }
+          }
         }
       }
     }
-    
-    return response;
+
+    // Return final data with complete response
+    if (finalData) {
+      yield {
+        type: 'done',
+        content: finalData.content,
+        thinking: finalData.thinking,
+        usage: finalData.usage,
+        cached: finalData.cached
+      };
+    }
+
   } catch (error) {
-    throw error;
+    console.error('Error calling Claude API:', error);
+    throw new Error(error.message || 'Failed to get response from Claude');
   }
+}
+
+// Legacy non-streaming function for backward compatibility
+export async function sendMessageToClaud(previousMessages, newContent, image) {
+  let fullContent = '';
+  let finalResponse = null;
+  
+  const stream = streamMessageToClaud(previousMessages, newContent, image);
+  
+  for await (const data of stream) {
+    if (data.type === 'chunk') {
+      fullContent += data.text;
+    } else if (data.type === 'done') {
+      finalResponse = data;
+    }
+  }
+  
+  return finalResponse || { content: fullContent };
 }

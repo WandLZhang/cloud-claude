@@ -29,7 +29,7 @@ def chat(request):
     - Always uses thinking mode with 6553 token budget
     - Supports prompt caching
     - Handles both text and image inputs
-    - Returns streamed content (note: Cloud Functions return complete response)
+    - Streams responses using Server-Sent Events (SSE)
     """
     
     # Handle preflight requests
@@ -118,55 +118,56 @@ def chat(request):
                 system_content['cache_control'] = {'type': 'ephemeral'}
             message_options['system'] = [system_content]
         
-        # Stream the response (Note: Cloud Functions collect full response)
-        full_response = ''
-        thinking_content = ''
-        is_thinking = False
-        chunks = []
+        # Create a generator for streaming response
+        def generate():
+            full_response = ''
+            thinking_content = ''
+            is_thinking = False
+            
+            try:
+                with client.messages.stream(**message_options) as stream:
+                    for event in stream:
+                        if hasattr(event, 'type'):
+                            if event.type == 'content_block_start':
+                                if hasattr(event, 'content_block') and event.content_block.type == 'thinking':
+                                    is_thinking = True
+                            elif event.type == 'content_block_delta':
+                                if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
+                                    text = event.delta.text
+                                    if is_thinking:
+                                        thinking_content += text
+                                    else:
+                                        full_response += text
+                                        # Stream text chunks as SSE
+                                        yield f"data: {json.dumps({'type': 'chunk', 'text': text})}\n\n"
+                            elif event.type == 'content_block_stop':
+                                if is_thinking:
+                                    is_thinking = False
+                    
+                    # Get usage stats
+                    usage = {
+                        'input_tokens': stream.current_message_snapshot.usage.input_tokens,
+                        'output_tokens': stream.current_message_snapshot.usage.output_tokens
+                    }
+                    
+                    # Check if prompt was cached
+                    if hasattr(stream.current_message_snapshot.usage, 'cache_creation_input_tokens'):
+                        usage['cache_creation_tokens'] = stream.current_message_snapshot.usage.cache_creation_input_tokens
+                    if hasattr(stream.current_message_snapshot.usage, 'cache_read_input_tokens'):
+                        usage['cache_read_tokens'] = stream.current_message_snapshot.usage.cache_read_input_tokens
+                    
+                    # Send final message with complete data
+                    yield f"data: {json.dumps({'type': 'done', 'content': full_response, 'thinking': thinking_content if thinking_content else None, 'usage': usage, 'cached': 'cache_read_tokens' in usage})}\n\n"
+                    
+            except Exception as e:
+                yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
         
-        with client.messages.stream(**message_options) as stream:
-            for event in stream:
-                if hasattr(event, 'type'):
-                    if event.type == 'content_block_start':
-                        if hasattr(event, 'content_block') and event.content_block.type == 'thinking':
-                            is_thinking = True
-                    elif event.type == 'content_block_delta':
-                        if hasattr(event, 'delta') and hasattr(event.delta, 'text'):
-                            text = event.delta.text
-                            if is_thinking:
-                                thinking_content += text
-                            else:
-                                full_response += text
-                                # Collect chunks for potential future streaming
-                                chunks.append({
-                                    'type': 'text_delta',
-                                    'text': text
-                                })
-                    elif event.type == 'content_block_stop':
-                        if is_thinking:
-                            is_thinking = False
-        
-        # Get usage stats
-        usage = {
-            'input_tokens': stream.current_message_snapshot.usage.input_tokens,
-            'output_tokens': stream.current_message_snapshot.usage.output_tokens
-        }
-        
-        # Check if prompt was cached
-        if hasattr(stream.current_message_snapshot.usage, 'cache_creation_input_tokens'):
-            usage['cache_creation_tokens'] = stream.current_message_snapshot.usage.cache_creation_input_tokens
-        if hasattr(stream.current_message_snapshot.usage, 'cache_read_input_tokens'):
-            usage['cache_read_tokens'] = stream.current_message_snapshot.usage.cache_read_input_tokens
-        
-        # Return the complete response
-        # Note: For true streaming, deploy this as a Cloud Run service instead
-        return {
-            'content': full_response,
-            'thinking': thinking_content if thinking_content else None,
-            'usage': usage,
-            'chunks': chunks,  # Include chunks for frontend simulation of streaming
-            'cached': 'cache_read_tokens' in usage  # Indicate if cache was used
-        }
+        # Return streaming response with proper headers
+        from flask import Response
+        return Response(generate(), mimetype='text/event-stream', headers={
+            'Cache-Control': 'no-cache',
+            'X-Accel-Buffering': 'no'  # Disable buffering for nginx
+        })
         
     except Exception as e:
         print(f"Error in chat function: {str(e)}")
