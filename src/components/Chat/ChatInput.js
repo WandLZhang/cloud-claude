@@ -154,10 +154,19 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
           <button
             type="submit"
             disabled={disabled || (!message.trim() && !selectedImage)}
-            className="icon-button primary"
+            className="icon-button"
             aria-label="Send message"
+            style={{
+              width: '40px',
+              height: '40px',
+              minWidth: '40px',
+              minHeight: '40px',
+              flexShrink: 0,
+              backgroundColor: 'var(--surface-container)',
+              color: 'var(--on-surface-variant)'
+            }}
           >
-            <span className="icon">send</span>
+            <span className="icon" style={{ fontSize: '24px' }}>send</span>
           </button>
         </div>
       </form>
