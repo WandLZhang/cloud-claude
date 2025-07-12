@@ -34,7 +34,7 @@
 }
 
 .home-title {
-  font-size: 1.5rem;
+  font-size: 1.25rem;
   font-weight: 500;
   color: var(--on-surface);
   text-align: center;
@@ -42,11 +42,11 @@
 }
 
 .home-subtitle {
-  font-size: 1rem;
+  font-size: 0.875rem;
   color: var(--on-surface-variant);
   text-align: center;
   max-width: 500px;
-  margin: 0 auto;
+  margin: 0 auto var(--unit-6) auto;
 }
 
 .home-error {
@@ -74,7 +74,7 @@
   }
   
   .home-title {
-    font-size: 2rem;
+    font-size: 1.5rem;
   }
   
   .home-controls {
@@ -89,7 +89,7 @@
 
 /* Recent chats section */
 .recent-chats-section {
-  margin-top: var(--unit-8);
+  margin-top: var(--unit-4);
   width: 100%;
   max-width: 800px;
   animation: fadeIn 0.5s ease-out;
@@ -107,9 +107,9 @@
 }
 
 .recent-chats-title {
-  font-size: 0.875rem;
-  font-weight: 500;
-  margin-bottom: var(--unit-4);
+  font-size: 0.75rem;
+  font-weight: 600;
+  margin-bottom: var(--unit-3);
   color: var(--on-surface-variant);
   text-transform: uppercase;
   letter-spacing: 0.05em;
@@ -117,15 +117,15 @@
 
 .recent-chats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: var(--unit-4);
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--unit-3);
 }
 
 .recent-chat-card {
-  padding: var(--unit-5);
+  padding: var(--unit-4);
   background: var(--surface-container-low);
   border: none;
-  border-radius: var(--unit-3);
+  border-radius: var(--unit-2);
   text-align: left;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -150,7 +150,7 @@
 
 .recent-chat-card:hover {
   background: var(--surface-container);
-  transform: translateY(-4px);
+  transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 
               0 2px 6px rgba(0, 0, 0, 0.12);
 }
@@ -170,23 +170,23 @@
 }
 
 .recent-chat-card h4 {
-  font-size: 1rem;
+  font-size: 0.875rem;
   font-weight: 500;
-  margin: 0 0 var(--unit-2) 0;
+  margin: 0 0 var(--unit-1) 0;
   color: var(--on-surface);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  line-height: 1.4;
+  line-height: 1.3;
 }
 
 .recent-chat-card p {
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   margin: 0;
   color: var(--on-surface-variant);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   opacity: 0.8;
-  line-height: 1.5;
+  line-height: 1.4;
 }

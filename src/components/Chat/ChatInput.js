@@ -1,12 +1,17 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..." }) {
-  const [message, setMessage] = useState('');
+function ChatInput({ onSendMessage, disabled, placeholder = "Type your message...", value = '' }) {
+  const [message, setMessage] = useState(value);
   const [selectedImage, setSelectedImage] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
+
+  useEffect(() => {
+    // Update message when value prop changes
+    setMessage(value);
+  }, [value]);
 
   useEffect(() => {
     // Auto-resize textarea

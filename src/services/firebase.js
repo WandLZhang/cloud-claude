@@ -222,6 +222,63 @@ export const subscribeToUserChats = (userId, callback) => {
   });
 };
 
+// Prompts functions
+export const getSavedPrompts = async (userId) => {
+  try {
+    const promptsRef = collection(db, 'prompts', userId, 'userPrompts');
+    const q = query(promptsRef, orderBy('createdAt', 'desc'));
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error getting saved prompts:', error);
+    return [];
+  }
+};
+
+export const createPrompt = async (userId, promptData) => {
+  try {
+    const promptRef = await addDoc(collection(db, 'prompts', userId, 'userPrompts'), {
+      ...promptData,
+      createdAt: serverTimestamp(),
+      lastUsedAt: null
+    });
+    return promptRef.id;
+  } catch (error) {
+    console.error('Error creating prompt:', error);
+    throw error;
+  }
+};
+
+export const updatePromptLastUsed = async (userId, promptId) => {
+  try {
+    await updateDoc(doc(db, 'prompts', userId, 'userPrompts', promptId), {
+      lastUsedAt: serverTimestamp()
+    });
+  } catch (error) {
+    console.error('Error updating prompt last used:', error);
+    throw error;
+  }
+};
+
+export const deletePrompt = async (userId, promptId) => {
+  try {
+    await deleteDoc(doc(db, 'prompts', userId, 'userPrompts', promptId));
+  } catch (error) {
+    console.error('Error deleting prompt:', error);
+    throw error;
+  }
+};
+
+export const subscribeToUserPrompts = (userId, callback) => {
+  const promptsRef = collection(db, 'prompts', userId, 'userPrompts');
+  const q = query(promptsRef, orderBy('createdAt', 'desc'));
+  
+  return onSnapshot(q, (snapshot) => {
+    const prompts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    callback(prompts);
+  });
+};
+
 // Storage functions
 export const uploadImage = async (userId, file) => {
   try {

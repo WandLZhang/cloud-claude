@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import UserMenu from '../Auth/UserMenu';
 import ChatInput from '../Chat/ChatInput';
+import SavedPrompts from './SavedPrompts';
 import { useChat } from '../../hooks/useChat';
 import './HomePage.css';
 
@@ -8,6 +9,7 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState('');
+  const [selectedPromptContent, setSelectedPromptContent] = useState('');
   const { sendMessage } = useChat(user.uid, null);
 
   const handleSendMessage = async (content, image) => {
@@ -71,13 +73,19 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
       </div>
 
       <div className="home-main-content">
-        <span className="icon text-muted" style={{ fontSize: '48px', marginBottom: 'var(--unit-4)' }}>
+        <span className="icon text-muted" style={{ fontSize: '36px', marginBottom: 'var(--unit-3)' }}>
           chat
         </span>
         <h1 className="home-title">Start a conversation</h1>
         <p className="home-subtitle text-muted">
           Ask me anything! I can help with analysis, writing, coding, and more.
         </p>
+
+        {/* Saved prompts section */}
+        <SavedPrompts 
+          userId={user.uid} 
+          onSelectPrompt={setSelectedPromptContent}
+        />
 
         {/* Recent chats section */}
         {userChats && userChats.length > 0 && (
@@ -113,6 +121,7 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
           onSendMessage={handleSendMessage}
           disabled={isThinking}
           placeholder="Message Claude..."
+          value={selectedPromptContent}
         />
       </div>
     </div>
