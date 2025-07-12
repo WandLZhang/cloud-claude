@@ -18,14 +18,74 @@ function ChatInterface({ user, onThemeToggle, theme }) {
 
   const { userChats, currentChat, clearCurrentChat, selectChat, createNewChat } = useFirestore(user.uid);
   const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id);
+  const previousMessagesLength = useRef(0);
+  const isStreamingRef = useRef(false);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  const scrollToBottom = (behavior = 'smooth') => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior, block: 'end' });
+    }
+    // Also try scrolling the container directly as a fallback
+    const container = document.querySelector('.messages-container');
+    if (container) {
+      container.scrollTop = container.scrollHeight;
+    }
   };
 
+  // Scroll when messages change
   useEffect(() => {
-    scrollToBottom();
+    if (messages.length === 0) return;
+
+    // Check if we're streaming (last message has isStreaming flag)
+    const lastMessage = messages[messages.length - 1];
+    const isCurrentlyStreaming = lastMessage?.isStreaming === true;
+    
+    // Determine if this is initial load or new messages
+    const isInitialLoad = previousMessagesLength.current === 0 && messages.length > 0;
+    const hasNewMessages = messages.length > previousMessagesLength.current;
+    
+    // Use instant scroll for streaming, smooth for other cases
+    const scrollBehavior = isCurrentlyStreaming ? 'auto' : 'smooth';
+    
+    // Increase delay for initial load to ensure proper rendering
+    const scrollDelay = isInitialLoad ? 300 : 0;
+    
+    const timeoutId = setTimeout(() => {
+      scrollToBottom(scrollBehavior);
+    }, scrollDelay);
+
+    // Update refs
+    previousMessagesLength.current = messages.length;
+    isStreamingRef.current = isCurrentlyStreaming;
+
+    return () => clearTimeout(timeoutId);
   }, [messages]);
+
+  // Additional scroll trigger specifically for chat switching
+  useEffect(() => {
+    if (currentChat?.id && messages.length > 0) {
+      // Multiple attempts to ensure scrolling works
+      // Immediate attempt
+      scrollToBottom('auto');
+      
+      // After next frame
+      requestAnimationFrame(() => {
+        scrollToBottom('auto');
+      });
+      
+      // After a delay
+      const timeoutId = setTimeout(() => {
+        scrollToBottom('auto');
+      }, 500);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [currentChat?.id, messages]);
+
+  // Reset message count when chat changes
+  useEffect(() => {
+    previousMessagesLength.current = 0;
+  }, [currentChat?.id]);
 
   const handleSendMessage = async (content, image) => {
     setError('');
