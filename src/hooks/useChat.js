@@ -3,7 +3,8 @@ import {
   subscribeToChat, 
   addMessage, 
   createChat,
-  updateMessage
+  updateMessage,
+  uploadImage
 } from '../services/firebase';
 import { streamMessageToClaud } from '../services/messageService';
 
@@ -60,11 +61,15 @@ export function useChat(userId, selectedChatId = null) {
         timestamp: new Date(),
       };
 
-      if (image) {
-        userMessage.image = {
-          url: image.url,
-          type: image.type
-        };
+      // Upload image if present
+      if (image && image.file) {
+        try {
+          const uploadedImage = await uploadImage(userId, image.file);
+          userMessage.image = uploadedImage;
+        } catch (error) {
+          console.error('Error uploading image:', error);
+          throw new Error('Failed to upload image. Please try again.');
+        }
       }
 
       await addMessage(userId, chatId, userMessage);
@@ -88,7 +93,7 @@ export function useChat(userId, selectedChatId = null) {
             let finalResponse = null;
 
             // Stream the response
-            const stream = streamMessageToClaud(messages, content, image);
+            const stream = streamMessageToClaud(messages, content, userMessage.image);
             
             for await (const data of stream) {
               if (data.type === 'chunk') {
@@ -140,7 +145,7 @@ export function useChat(userId, selectedChatId = null) {
       let finalResponse = null;
 
       // Stream the response
-      const stream = streamMessageToClaud(messages, content, image);
+      const stream = streamMessageToClaud(messages, content, userMessage.image);
       
       for await (const data of stream) {
         if (data.type === 'chunk') {

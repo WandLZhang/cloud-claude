@@ -4,6 +4,13 @@ from flask_cors import cross_origin
 import json
 import base64
 import httpx
+import firebase_admin
+from firebase_admin import credentials, storage
+from urllib.parse import urlparse, unquote
+
+# Initialize Firebase Admin
+if not firebase_admin._apps:
+    firebase_admin.initialize_app()
 
 # Initialize the Anthropic client
 LOCATION = "us-east5"
@@ -11,6 +18,43 @@ PROJECT_ID = "wz-cloud-claude"
 MODEL = "claude-opus-4@20250514"
 
 client = AnthropicVertex(region=LOCATION, project_id=PROJECT_ID)
+
+def download_image_from_storage(url):
+    """Download image from Firebase Storage using Admin SDK."""
+    try:
+        # Parse the URL to get the file path
+        parsed_url = urlparse(url)
+        
+        # Extract the path from Firebase Storage URL
+        # Format: https://firebasestorage.googleapis.com/v0/b/{bucket}/o/{encoded_path}?...
+        if 'firebasestorage.googleapis.com' in parsed_url.netloc:
+            path_parts = parsed_url.path.split('/o/')
+            if len(path_parts) > 1:
+                # Decode the URL-encoded path
+                file_path = unquote(path_parts[1].split('?')[0])
+                
+                # Get the storage bucket
+                bucket = storage.bucket('wz-cloud-claude.firebasestorage.app')
+                
+                # Get the blob
+                blob = bucket.blob(file_path)
+                
+                # Download the file content
+                content = blob.download_as_bytes()
+                
+                # Get content type
+                content_type = blob.content_type or 'image/jpeg'
+                
+                # Convert to base64
+                base64_data = base64.b64encode(content).decode('utf-8')
+                
+                return base64_data, content_type
+        
+        raise ValueError("Invalid Firebase Storage URL")
+        
+    except Exception as e:
+        print(f"Error downloading image from Firebase Storage: {str(e)}")
+        raise
 
 @functions_framework.http
 @cross_origin()
@@ -53,6 +97,26 @@ def chat(request):
         system_prompt = request_json.get('system_prompt')
         use_cache = request_json.get('use_cache', True)
         max_tokens = request_json.get('max_tokens', 8192)  # Maximum output tokens
+        
+        # Handle image data - convert URL to base64 if needed
+        if image_data:
+            # Check if it's a URL or base64 data
+            if 'url' in image_data and image_data['url'].startswith('http'):
+                # Download image from Firebase Storage URL using Admin SDK
+                base64_data, content_type = download_image_from_storage(image_data['url'])
+                image_data = {
+                    'data': base64_data,
+                    'media_type': content_type
+                }
+            elif 'url' in image_data and image_data['url'].startswith('data:'):
+                # Extract base64 from data URL
+                base64_data = image_data['url'].split(',')[1]
+                media_type = image_data.get('type', 'image/jpeg')
+                image_data = {
+                    'data': base64_data,
+                    'media_type': media_type
+                }
+            # If 'data' key already exists, use as is
         
         # Prepare messages (excluding system prompt)
         all_messages = []

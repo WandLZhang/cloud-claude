@@ -23,6 +23,12 @@ import {
   onSnapshot,
   serverTimestamp 
 } from 'firebase/firestore';
+import { 
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL 
+} from 'firebase/storage';
 
 const firebaseConfig = {
   apiKey: process.env.REACT_APP_FIREBASE_API_KEY,
@@ -37,6 +43,7 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = getFirestore(app);
+export const storage = getStorage(app);
 
 // Auth providers
 const googleProvider = new GoogleAuthProvider();
@@ -213,4 +220,30 @@ export const subscribeToUserChats = (userId, callback) => {
     const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     callback(chats);
   });
+};
+
+// Storage functions
+export const uploadImage = async (userId, file) => {
+  try {
+    // Create a unique filename
+    const timestamp = Date.now();
+    const fileName = `${timestamp}-${file.name}`;
+    const storageRef = ref(storage, `chat-images/${userId}/${fileName}`);
+    
+    // Upload the file
+    const snapshot = await uploadBytes(storageRef, file);
+    
+    // Get the download URL
+    const downloadURL = await getDownloadURL(snapshot.ref);
+    
+    return {
+      url: downloadURL,
+      type: file.type,
+      name: file.name,
+      size: file.size
+    };
+  } catch (error) {
+    console.error('Error uploading image:', error);
+    throw error;
+  }
 };

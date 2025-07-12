@@ -27,11 +27,9 @@ export async function* streamMessageToClaud(previousMessages, newContent, image)
 
     // Add image if provided
     if (image) {
-      // Extract base64 data from data URL
-      const base64Data = image.url.split(',')[1];
       payload.image = {
-        data: base64Data,
-        media_type: image.type
+        url: image.url,
+        type: image.type
       };
     }
 
