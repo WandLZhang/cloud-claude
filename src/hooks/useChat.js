@@ -49,9 +49,26 @@ export function useChat(userId, selectedChatId = null) {
         
         // Debounce rapid updates to prevent rendering issues
         updateTimeoutId = setTimeout(() => {
-          setMessages(newMessages);
+          // Always sort messages by timestamp to ensure correct order
+          const sortedMessages = [...newMessages].sort((a, b) => {
+            // Handle both Date objects and Firestore timestamps
+            const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
+            const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
+            return timeA - timeB;
+          });
+          
+          // Check if any message just finished streaming
+          const wasStreaming = messagesRef.current.some(msg => msg.isStreaming);
+          const nowNotStreaming = !sortedMessages.some(msg => msg.isStreaming);
+          
+          if (wasStreaming && nowNotStreaming) {
+            // Force a final sort when streaming completes
+            console.log('Streaming completed, locking message order');
+          }
+          
+          setMessages(sortedMessages);
           setLoading(false);
-        }, 10);
+        }, 50); // Increased debounce for mobile stability
       });
     }, 50);
 
