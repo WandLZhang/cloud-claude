@@ -3,15 +3,34 @@ const CLOUD_FUNCTION_URL = process.env.REACT_APP_CLOUD_FUNCTION_URL;
 export async function* streamMessageToClaud(previousMessages, newContent, image) {
   try {
     // Prepare messages array for Claude
-    const messages = previousMessages.map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }));
+    const messages = previousMessages.map(msg => {
+      // Check if this message had an image
+      if (msg.image) {
+        // Add placeholder text for image messages
+        const imageIndicator = '[User sent an image]';
+        // Combine with any existing text content
+        const combinedContent = msg.content ? 
+          `${imageIndicator}\n${msg.content}` : 
+          imageIndicator;
+        
+        return {
+          role: msg.role,
+          content: combinedContent
+        };
+      }
+      
+      // Regular text-only message
+      return {
+        role: msg.role,
+        content: msg.content
+      };
+    });
 
     // Add the new message
+    // For image-only messages without text, ensure we have at least an empty string
     messages.push({
       role: 'user',
-      content: newContent
+      content: newContent || ''
     });
 
     // Prepare request payload
