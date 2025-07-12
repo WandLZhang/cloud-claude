@@ -151,6 +151,35 @@ export const updateMessage = async (userId, chatId, messageId, updates) => {
   }
 };
 
+export const deleteMessage = async (userId, chatId, messageId) => {
+  try {
+    // Delete message from subcollection
+    await deleteDoc(doc(db, 'chats', userId, 'conversations', chatId, 'messages', messageId));
+    
+    // Get remaining messages to update the last message
+    const messagesRef = collection(db, 'chats', userId, 'conversations', chatId, 'messages');
+    const q = query(messagesRef, orderBy('timestamp', 'desc'), limit(1));
+    const snapshot = await getDocs(q);
+    
+    if (!snapshot.empty) {
+      const lastMessage = snapshot.docs[0].data();
+      await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
+        lastMessage: lastMessage.content || '',
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // No messages left, update to empty
+      await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
+        lastMessage: '',
+        updatedAt: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    throw error;
+  }
+};
+
 export const updateChatTitle = async (userId, chatId, newTitle) => {
   try {
     await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {

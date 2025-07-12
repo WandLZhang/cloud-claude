@@ -1,15 +1,19 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ExportMenu from './ExportMenu';
+import UserMessageMenu from './UserMessageMenu';
 import './ExportMenu.css';
+import './UserMessageMenu.css';
 
-function MessageItem({ message }) {
+function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId }) {
   const isUser = message.role === 'user';
   const isStreaming = message.isStreaming;
   const messageRef = useRef(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedContent, setEditedContent] = useState(message.content || '');
 
   const components = {
     code({ node, inline, className, children, ...props }) {
@@ -36,13 +40,44 @@ function MessageItem({ message }) {
     },
   };
 
+  const handleEdit = () => {
+    setIsEditing(true);
+    setEditedContent(message.content || '');
+  };
+
+  const handleSave = async () => {
+    if (editedContent.trim() !== message.content) {
+      await onUpdateMessage(userId, chatId, message.id, { content: editedContent.trim() });
+    }
+    setIsEditing(false);
+  };
+
+  const handleCancel = () => {
+    setEditedContent(message.content || '');
+    setIsEditing(false);
+  };
+
+  const handleDelete = async () => {
+    await onDeleteMessage(userId, chatId, message.id);
+  };
+
   return (
     <div className={`message message-${isUser ? 'user' : 'assistant'}`}>
-      <div className="message-bubble" ref={!isUser ? messageRef : null}>
+      <div className="message-bubble" ref={!isUser ? messageRef : null} style={{ position: 'relative' }}>
         {!isUser && !isStreaming && message.content && (
           <div style={{ position: 'absolute', top: 'var(--unit-2)', right: 'var(--unit-2)' }}>
-            <ExportMenu message={message} messageRef={messageRef} />
+            <ExportMenu 
+              message={message} 
+              messageRef={messageRef} 
+              onDelete={onDeleteMessage ? () => handleDelete() : null}
+            />
           </div>
+        )}
+        {isUser && (
+          <UserMessageMenu 
+            onEdit={handleEdit}
+            onDelete={handleDelete}
+          />
         )}
         {message.image && (
           <img 
@@ -57,7 +92,26 @@ function MessageItem({ message }) {
           />
         )}
         {isUser ? (
-          <div>{message.content}</div>
+          isEditing ? (
+            <div className="message-edit-mode">
+              <textarea
+                className="message-edit-textarea"
+                value={editedContent}
+                onChange={(e) => setEditedContent(e.target.value)}
+                autoFocus
+              />
+              <div className="message-edit-actions">
+                <button className="cancel-button" onClick={handleCancel}>
+                  Cancel
+                </button>
+                <button className="save-button" onClick={handleSave}>
+                  Save
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div>{message.content}</div>
+          )
         ) : (
           <div className="message-content">
             <ReactMarkdown 

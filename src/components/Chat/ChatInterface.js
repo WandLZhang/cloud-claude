@@ -6,6 +6,7 @@ import HomePage from '../Home/HomePage';
 import StarredChats from './StarredChats';
 import { useChat } from '../../hooks/useChat';
 import { useFirestore } from '../../hooks/useFirestore';
+import { updateMessage, deleteMessage } from '../../services/firebase';
 import './ChatInterface.css';
 
 function ChatInterface({ user, onThemeToggle, theme }) {
@@ -107,6 +108,10 @@ function ChatInterface({ user, onThemeToggle, theme }) {
               messages={messages} 
               isThinking={isThinking}
               loading={loading}
+              onUpdateMessage={updateMessage}
+              onDeleteMessage={deleteMessage}
+              userId={user.uid}
+              chatId={currentChat.id}
             />
             <div ref={messagesEndRef} />
             

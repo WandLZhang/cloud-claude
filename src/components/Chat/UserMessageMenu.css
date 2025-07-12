@@ -1,0 +1,130 @@
+.user-message-menu-wrapper {
+  position: relative;
+  display: inline-block;
+  z-index: 10;
+}
+
+.user-message-menu-button {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.message-bubble:hover .user-message-menu-button {
+  opacity: 1;
+}
+
+.user-message-menu-button:hover {
+  background-color: rgba(0, 0, 0, 0.05);
+}
+
+.user-message-menu-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: var(--unit-1);
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: var(--unit-2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-width: 150px;
+  z-index: 9999;
+  overflow: hidden;
+}
+
+.user-message-menu-dropdown .menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--unit-2);
+  width: 100%;
+  padding: var(--unit-2) var(--unit-3);
+  border: none;
+  background: none;
+  font-size: 14px;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.user-message-menu-dropdown .menu-item:hover {
+  background-color: var(--bg-secondary);
+}
+
+.user-message-menu-dropdown .menu-item .icon {
+  font-size: 18px;
+  color: var(--text-secondary);
+}
+
+/* Dark mode support */
+[data-theme="dark"] .user-message-menu-dropdown {
+  background: var(--bg-primary);
+  border-color: var(--border-color);
+}
+
+[data-theme="dark"] .user-message-menu-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Edit mode styles */
+.message-edit-mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--unit-2);
+  width: 100%;
+}
+
+.message-edit-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: var(--unit-2);
+  font-family: inherit;
+  font-size: inherit;
+  line-height: 1.5;
+  border: 1px solid var(--primary-color);
+  border-radius: var(--unit-1);
+  resize: vertical;
+  outline: none;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.message-edit-actions {
+  display: flex;
+  gap: var(--unit-2);
+  justify-content: flex-end;
+}
+
+.message-edit-actions button {
+  padding: var(--unit-1) var(--unit-3);
+  font-size: 14px;
+  border-radius: var(--unit-1);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.save-button {
+  background: var(--primary-color);
+  color: white;
+  border: none;
+}
+
+.save-button:hover {
+  background: var(--primary-color-dark);
+}
+
+.cancel-button {
+  background: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.cancel-button:hover {
+  background: var(--bg-secondary);
+}
+
+/* User message specific menu positioning */
+.message-user .user-message-menu-wrapper {
+  position: absolute;
+  top: var(--unit-2);
+  right: var(--unit-2);
+}

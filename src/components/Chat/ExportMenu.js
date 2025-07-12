@@ -4,7 +4,7 @@ import html2canvas from 'html2canvas';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
 import { saveToGoogleDocs, initializeGoogleAPI, isGoogleAuthorized } from '../../services/googleDriveService';
 
-function ExportMenu({ message, messageRef }) {
+function ExportMenu({ message, messageRef, onDelete }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
@@ -152,6 +152,13 @@ function ExportMenu({ message, messageRef }) {
     setIsOpen(false);
   };
 
+  const handleDelete = () => {
+    if (onDelete) {
+      onDelete();
+    }
+    setIsOpen(false);
+  };
+
   return (
     <div className="export-menu-wrapper" ref={menuRef}>
       <button
@@ -201,6 +208,20 @@ function ExportMenu({ message, messageRef }) {
               <span>Copy to Clipboard</span>
             </button>
           </CopyToClipboard>
+          
+          {onDelete && (
+            <>
+              <div style={{ height: '1px', background: 'var(--border-color)', margin: '4px 0' }} />
+              <button
+                className="menu-item"
+                onClick={handleDelete}
+                disabled={isExporting}
+              >
+                <span className="icon">delete</span>
+                <span>Delete Message</span>
+              </button>
+            </>
+          )}
         </div>
       )}
       

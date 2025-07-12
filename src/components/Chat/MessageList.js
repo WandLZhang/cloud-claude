@@ -2,7 +2,7 @@ import React from 'react';
 import MessageItem from './MessageItem';
 import LoadingSpinner from '../Common/LoadingSpinner';
 
-function MessageList({ messages, isThinking, loading }) {
+function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteMessage, userId, chatId }) {
   if (loading) {
     return (
       <div className="messages-container scrollbar-custom flex items-center justify-center">
@@ -26,7 +26,14 @@ function MessageList({ messages, isThinking, loading }) {
       ) : (
         <>
           {messages.map((message) => (
-            <MessageItem key={message.id} message={message} />
+            <MessageItem 
+              key={message.id} 
+              message={message}
+              onUpdateMessage={onUpdateMessage}
+              onDeleteMessage={onDeleteMessage}
+              userId={userId}
+              chatId={chatId}
+            />
           ))}
         </>
       )}
