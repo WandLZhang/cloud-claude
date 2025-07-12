@@ -116,30 +116,19 @@ function ChatSidebar({
 
       {/* Sidebar */}
       <div className={`chat-sidebar ${isOpen ? 'open' : ''}`}>
-        <div className="sidebar-header">
-          <h2>Chats</h2>
-          <button 
-            className="icon-button"
-            onClick={onNewChat}
-            title="New Chat"
-          >
-            <span className="icon">add</span>
-          </button>
-        </div>
-
         <div className="chat-list">
           {userChats.length === 0 ? (
             <div className="empty-state">
               <p>No previous chats</p>
               <button 
-                className="button button-primary"
                 onClick={onNewChat}
               >
                 Start New Chat
               </button>
             </div>
           ) : (
-            userChats.map((chat) => (
+            <>
+              {userChats.map((chat) => (
               <button
                 key={chat.id}
                 className={`chat-item ${currentChatId === chat.id ? 'active' : ''}`}
@@ -250,9 +239,19 @@ function ChatSidebar({
                   )}
                 </div>
               </button>
-            ))
+            ))}
+            </>
           )}
         </div>
+        {userChats.length > 0 && (
+          <div className="sidebar-bottom">
+            <button 
+              onClick={onNewChat}
+            >
+              Start New Chat
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Mobile overlay */}
