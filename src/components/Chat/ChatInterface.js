@@ -14,6 +14,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState('home'); // 'home', 'chat', 'starred'
+  const [targetMessageId, setTargetMessageId] = useState(null);
   const messagesEndRef = useRef(null);
 
   const { userChats, currentChat, clearCurrentChat, selectChat, createNewChat } = useFirestore(user.uid);
@@ -122,6 +123,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     switchChat(chat.id);
     setSidebarOpen(false);
     setViewMode('chat');
+    setTargetMessageId(null);
   };
 
   const handleStartNewChat = async () => {
@@ -136,6 +138,19 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     } catch (error) {
       console.error('Error creating new chat:', error);
       setError('Failed to create new chat. Please try again.');
+    }
+  };
+
+  const handleSelectSearchResult = async (result) => {
+    // First, select the chat
+    const chat = userChats.find(c => c.id === result.chatId);
+    if (chat) {
+      selectChat(chat);
+      switchChat(result.chatId);
+      setSidebarOpen(false);
+      setViewMode('chat');
+      // Set the target message ID to scroll to
+      setTargetMessageId(result.messageId);
     }
   };
 
@@ -172,6 +187,8 @@ function ChatInterface({ user, onThemeToggle, theme }) {
               onDeleteMessage={deleteMessage}
               userId={user.uid}
               chatId={currentChat.id}
+              targetMessageId={targetMessageId}
+              onScrollComplete={() => setTargetMessageId(null)}
             />
             <div ref={messagesEndRef} />
             
@@ -213,6 +230,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
         onStarredChatsClick={handleStarredChatsClick}
+        onSelectSearchResult={handleSelectSearchResult}
       />
       
       {renderContent()}

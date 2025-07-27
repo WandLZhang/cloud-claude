@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { updateChatTitle, deleteChat, toggleChatStar } from '../../services/firebase';
 import { auth } from '../../services/firebase';
+import SearchResults from './SearchResults';
 import './ChatSidebar.css';
 
 function ChatSidebar({ 
@@ -10,12 +11,16 @@ function ChatSidebar({
   onNewChat,
   isOpen,
   onToggle,
-  onStarredChatsClick 
+  onStarredChatsClick,
+  onSelectSearchResult 
 }) {
   const [editingChatId, setEditingChatId] = useState(null);
   const [editingTitle, setEditingTitle] = useState('');
   const [hoveredChatId, setHoveredChatId] = useState(null);
   const [openMenuChatId, setOpenMenuChatId] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showSearchResults, setShowSearchResults] = useState(false);
+
   const formatDate = (timestamp) => {
     if (!timestamp) return '';
     
@@ -102,6 +107,23 @@ function ChatSidebar({
     setOpenMenuChatId(openMenuChatId === chatId ? null : chatId);
   };
 
+  const handleSearchChange = (e) => {
+    const query = e.target.value;
+    setSearchQuery(query);
+    setShowSearchResults(query.trim().length > 0);
+  };
+
+  const handleClearSearch = () => {
+    setSearchQuery('');
+    setShowSearchResults(false);
+  };
+
+  const handleSearchResultClick = (result) => {
+    setShowSearchResults(false);
+    setSearchQuery('');
+    onSelectSearchResult(result);
+  };
+
   // Close menu when clicking outside
   useEffect(() => {
     const handleClickOutside = () => {
@@ -127,170 +149,206 @@ function ChatSidebar({
 
       {/* Sidebar */}
       <div className={`chat-sidebar ${isOpen ? 'open' : ''}`}>
-        {/* Starred Chats Section */}
-        <div className="starred-chats-section">
-          <button 
-            className="starred-chats-button"
-            onClick={onStarredChatsClick}
-          >
-            <span className="icon">star</span>
-            <span>Starred Chats</span>
-            <span className="icon chevron">chevron_right</span>
-          </button>
-        </div>
-        
-        <div className="chat-list">
-          {userChats.length === 0 ? (
-            <div className="empty-state">
-              <p>No previous chats</p>
+        {/* Search Section */}
+        <div className="search-section">
+          <div className="search-input-wrapper">
+            <input
+              type="text"
+              placeholder="Search messages..."
+              value={searchQuery}
+              onChange={handleSearchChange}
+              className="search-input"
+            />
+            {searchQuery && (
               <button 
-                onClick={onNewChat}
+                className="clear-search-button"
+                onClick={handleClearSearch}
+                aria-label="Clear search"
               >
-                Start New Chat
+                <span className="icon">close</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Search Results */}
+        {showSearchResults && (
+          <SearchResults
+            searchQuery={searchQuery}
+            userId={auth.currentUser.uid}
+            onSelectResult={handleSearchResultClick}
+          />
+        )}
+
+        {/* Regular Chat List */}
+        {!showSearchResults && (
+          <>
+            {/* Starred Chats Section */}
+            <div className="starred-chats-section">
+              <button 
+                className="starred-chats-button"
+                onClick={onStarredChatsClick}
+              >
+                <span className="icon">star</span>
+                <span>Starred Chats</span>
+                <span className="icon chevron">chevron_right</span>
               </button>
             </div>
-          ) : (
-            <>
-              {userChats.map((chat) => (
-              <button
-                key={chat.id}
-                className={`chat-item ${currentChatId === chat.id ? 'active' : ''}`}
-                onClick={() => onSelectChat(chat)}
-                onMouseEnter={() => setHoveredChatId(chat.id)}
-                onMouseLeave={() => setHoveredChatId(null)}
-              >
-                <div className="chat-item-content">
-                  {editingChatId === chat.id ? (
-                    <input
-                      type="text"
-                      value={editingTitle}
-                      onChange={(e) => setEditingTitle(e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(e, chat.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      className="chat-title-input"
-                      autoFocus
-                    />
-                  ) : (
-                    <>
-                      <div className="chat-title-row">
-                        <h3>{truncateText(chat.title || 'New Chat', 30)}</h3>
-                        {chat.isStarred && <span className="icon starred-icon">star</span>}
-                      </div>
-                      <p className="chat-preview">
-                        {truncateText(chat.lastMessage || 'No messages yet')}
-                      </p>
-                    </>
-                  )}
+            
+            <div className="chat-list">
+              {userChats.length === 0 ? (
+                <div className="empty-state">
+                  <p>No previous chats</p>
+                  <button 
+                    onClick={onNewChat}
+                  >
+                    Start New Chat
+                  </button>
                 </div>
-                <div className="chat-actions">
-                  {editingChatId === chat.id ? (
-                    <>
-                      <button
-                        className="icon-button small"
-                        onClick={(e) => handleSaveEdit(e, chat.id)}
-                        title="Save"
-                      >
-                        <span className="icon">check</span>
-                      </button>
-                      <button
-                        className="icon-button small"
-                        onClick={handleCancelEdit}
-                        title="Cancel"
-                      >
-                        <span className="icon">close</span>
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="chat-time">
-                        {formatDate(chat.updatedAt)}
-                      </span>
-                      {/* Desktop hover actions */}
-                      {hoveredChatId === chat.id && (
-                        <div className="chat-hover-actions hide-mobile">
-                          <button
-                            className="icon-button small"
-                            onClick={(e) => handleStarClick(e, chat)}
-                            title={chat.isStarred ? "Unstar chat" : "Star chat"}
-                          >
-                            <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
-                          </button>
-                          <button
-                            className="icon-button small"
-                            onClick={(e) => handleEditClick(e, chat)}
-                            title="Rename chat"
-                          >
-                            <span className="icon">edit</span>
-                          </button>
-                          <button
-                            className="icon-button small delete"
-                            onClick={(e) => handleDeleteClick(e, chat.id)}
-                            title="Delete chat"
-                          >
-                            <span className="icon">delete</span>
-                          </button>
-                        </div>
-                      )}
-                      
-                      {/* Mobile menu button */}
-                      <div className="chat-menu-wrapper show-mobile">
-                        <button
-                          className="icon-button small"
-                          onClick={(e) => handleMenuClick(e, chat.id)}
-                          title="More options"
-                        >
-                          <span className="icon">more_vert</span>
-                        </button>
-                        
-                        {/* Dropdown menu */}
-                        {openMenuChatId === chat.id && (
-                          <div className="chat-menu-dropdown">
-                            <button
-                              className="menu-item"
-                              onClick={(e) => handleStarClick(e, chat)}
-                            >
-                              <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
-                              <span>{chat.isStarred ? 'Unstar' : 'Star'}</span>
-                            </button>
-                            <button
-                              className="menu-item"
-                              onClick={(e) => {
-                                handleEditClick(e, chat);
-                                setOpenMenuChatId(null);
-                              }}
-                            >
-                              <span className="icon">edit</span>
-                              <span>Rename</span>
-                            </button>
-                            <button
-                              className="menu-item delete"
-                              onClick={(e) => {
-                                handleDeleteClick(e, chat.id);
-                                setOpenMenuChatId(null);
-                              }}
-                            >
-                              <span className="icon">delete</span>
-                              <span>Delete</span>
-                            </button>
+              ) : (
+                <>
+                  {userChats.map((chat) => (
+                  <button
+                    key={chat.id}
+                    className={`chat-item ${currentChatId === chat.id ? 'active' : ''}`}
+                    onClick={() => onSelectChat(chat)}
+                    onMouseEnter={() => setHoveredChatId(chat.id)}
+                    onMouseLeave={() => setHoveredChatId(null)}
+                  >
+                    <div className="chat-item-content">
+                      {editingChatId === chat.id ? (
+                        <input
+                          type="text"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onKeyDown={(e) => handleKeyDown(e, chat.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="chat-title-input"
+                          autoFocus
+                        />
+                      ) : (
+                        <>
+                          <div className="chat-title-row">
+                            <h3>{truncateText(chat.title || 'New Chat', 30)}</h3>
+                            {chat.isStarred && <span className="icon starred-icon">star</span>}
                           </div>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              </button>
-            ))}
-            </>
-          )}
-        </div>
-        {userChats.length > 0 && (
-          <div className="sidebar-bottom">
-            <button 
-              onClick={onNewChat}
-            >
-              Start New Chat
-            </button>
-          </div>
+                          <p className="chat-preview">
+                            {truncateText(chat.lastMessage || 'No messages yet')}
+                          </p>
+                        </>
+                      )}
+                    </div>
+                    <div className="chat-actions">
+                      {editingChatId === chat.id ? (
+                        <>
+                          <button
+                            className="icon-button small"
+                            onClick={(e) => handleSaveEdit(e, chat.id)}
+                            title="Save"
+                          >
+                            <span className="icon">check</span>
+                          </button>
+                          <button
+                            className="icon-button small"
+                            onClick={handleCancelEdit}
+                            title="Cancel"
+                          >
+                            <span className="icon">close</span>
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="chat-time">
+                            {formatDate(chat.updatedAt)}
+                          </span>
+                          {/* Desktop hover actions */}
+                          {hoveredChatId === chat.id && (
+                            <div className="chat-hover-actions hide-mobile">
+                              <button
+                                className="icon-button small"
+                                onClick={(e) => handleStarClick(e, chat)}
+                                title={chat.isStarred ? "Unstar chat" : "Star chat"}
+                              >
+                                <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
+                              </button>
+                              <button
+                                className="icon-button small"
+                                onClick={(e) => handleEditClick(e, chat)}
+                                title="Rename chat"
+                              >
+                                <span className="icon">edit</span>
+                              </button>
+                              <button
+                                className="icon-button small delete"
+                                onClick={(e) => handleDeleteClick(e, chat.id)}
+                                title="Delete chat"
+                              >
+                                <span className="icon">delete</span>
+                              </button>
+                            </div>
+                          )}
+                          
+                          {/* Mobile menu button */}
+                          <div className="chat-menu-wrapper show-mobile">
+                            <button
+                              className="icon-button small"
+                              onClick={(e) => handleMenuClick(e, chat.id)}
+                              title="More options"
+                            >
+                              <span className="icon">more_vert</span>
+                            </button>
+                            
+                            {/* Dropdown menu */}
+                            {openMenuChatId === chat.id && (
+                              <div className="chat-menu-dropdown">
+                                <button
+                                  className="menu-item"
+                                  onClick={(e) => handleStarClick(e, chat)}
+                                >
+                                  <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
+                                  <span>{chat.isStarred ? 'Unstar' : 'Star'}</span>
+                                </button>
+                                <button
+                                  className="menu-item"
+                                  onClick={(e) => {
+                                    handleEditClick(e, chat);
+                                    setOpenMenuChatId(null);
+                                  }}
+                                >
+                                  <span className="icon">edit</span>
+                                  <span>Rename</span>
+                                </button>
+                                <button
+                                  className="menu-item delete"
+                                  onClick={(e) => {
+                                    handleDeleteClick(e, chat.id);
+                                    setOpenMenuChatId(null);
+                                  }}
+                                >
+                                  <span className="icon">delete</span>
+                                  <span>Delete</span>
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </button>
+                ))}
+                </>
+              )}
+            </div>
+            {userChats.length > 0 && (
+              <div className="sidebar-bottom">
+                <button 
+                  onClick={onNewChat}
+                >
+                  Start New Chat
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

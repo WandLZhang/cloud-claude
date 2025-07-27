@@ -308,6 +308,52 @@ export const subscribeToUserPrompts = (userId, callback) => {
   });
 };
 
+// Search functions
+export const searchMessages = async (userId, searchQuery) => {
+  try {
+    const results = [];
+    const lowerQuery = searchQuery.toLowerCase();
+    
+    // Get all user chats
+    const chatsRef = collection(db, 'chats', userId, 'conversations');
+    const chatsSnapshot = await getDocs(chatsRef);
+    
+    // Search through each chat's messages
+    for (const chatDoc of chatsSnapshot.docs) {
+      const chatData = chatDoc.data();
+      const chatId = chatDoc.id;
+      const chatTitle = chatData.title || 'Untitled Chat';
+      
+      // Get messages for this chat
+      const messagesRef = collection(db, 'chats', userId, 'conversations', chatId, 'messages');
+      const messagesSnapshot = await getDocs(messagesRef);
+      
+      // Search through messages
+      messagesSnapshot.docs.forEach(messageDoc => {
+        const messageData = messageDoc.data();
+        const messageContent = messageData.content || '';
+        
+        // Check if message content contains search query (case-insensitive)
+        if (messageContent.toLowerCase().includes(lowerQuery)) {
+          results.push({
+            chatId,
+            chatTitle,
+            messageId: messageDoc.id,
+            content: messageContent,
+            timestamp: messageData.timestamp,
+            role: messageData.role
+          });
+        }
+      });
+    }
+    
+    return results;
+  } catch (error) {
+    console.error('Error searching messages:', error);
+    return [];
+  }
+};
+
 // Storage functions
 export const uploadImage = async (userId, file) => {
   try {

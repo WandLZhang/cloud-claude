@@ -2,9 +2,10 @@ import React, { useEffect, useRef } from 'react';
 import MessageItem from './MessageItem';
 import LoadingSpinner from '../Common/LoadingSpinner';
 
-function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteMessage, userId, chatId }) {
+function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteMessage, userId, chatId, targetMessageId, onScrollComplete }) {
   const containerRef = useRef(null);
   const prevMessagesLength = useRef(0);
+  const messageRefs = useRef({});
 
   // Scroll to bottom when messages load or change
   useEffect(() => {
@@ -65,6 +66,32 @@ function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteM
       }, 100);
     }
   }, [chatId]);
+
+  // Scroll to target message when provided
+  useEffect(() => {
+    if (targetMessageId && messages.length > 0 && messageRefs.current[targetMessageId]) {
+      const timeoutId = setTimeout(() => {
+        const targetElement = messageRefs.current[targetMessageId];
+        if (targetElement) {
+          targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          
+          // Add highlight effect
+          targetElement.classList.add('highlight-message');
+          
+          // Remove highlight after animation
+          setTimeout(() => {
+            targetElement.classList.remove('highlight-message');
+            if (onScrollComplete) {
+              onScrollComplete();
+            }
+          }, 2000);
+        }
+      }, 500); // Wait for messages to render
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [targetMessageId, messages]);
+
   if (loading) {
     return (
       <div className="messages-container scrollbar-custom flex items-center justify-center">
@@ -88,14 +115,18 @@ function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteM
       ) : (
         <>
           {messages.map((message) => (
-            <MessageItem 
-              key={message.id} 
-              message={message}
-              onUpdateMessage={onUpdateMessage}
-              onDeleteMessage={onDeleteMessage}
-              userId={userId}
-              chatId={chatId}
-            />
+            <div 
+              key={message.id}
+              ref={(el) => messageRefs.current[message.id] = el}
+            >
+              <MessageItem 
+                message={message}
+                onUpdateMessage={onUpdateMessage}
+                onDeleteMessage={onDeleteMessage}
+                userId={userId}
+                chatId={chatId}
+              />
+            </div>
           ))}
         </>
       )}

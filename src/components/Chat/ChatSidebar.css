@@ -358,9 +358,85 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
+/* Search Section */
+.search-section {
+  padding: var(--unit-4) var(--unit-2) var(--unit-2) var(--unit-2);
+}
+
+.search-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: none;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+  border-radius: 0;
+}
+
+.search-input-wrapper:focus-within {
+  background: none;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.search-input {
+  width: 100%;
+  padding: var(--unit-3) var(--unit-12) var(--unit-3) var(--unit-3);
+  background: transparent;
+  border: none !important;
+  outline: none !important;
+  font-family: var(--font);
+  font-size: 0.875rem;
+  color: var(--on-surface);
+}
+
+.search-input:focus {
+  outline: none !important;
+  box-shadow: none !important;
+  border: none !important;
+}
+
+.search-input::placeholder {
+  color: var(--on-surface-variant);
+}
+
+/* Remove any webkit/browser default styling */
+.search-input::-webkit-search-decoration,
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-results-button,
+.search-input::-webkit-search-results-decoration {
+  display: none;
+}
+
+.clear-search-button {
+  position: absolute;
+  right: var(--unit-2);
+  width: 32px;
+  height: 32px;
+  background: transparent;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.clear-search-button:hover {
+  background-color: var(--surface-variant);
+}
+
+.clear-search-button .icon {
+  font-size: 18px;
+  color: var(--on-surface-variant);
+}
+
 /* Starred Chats Section */
 .starred-chats-section {
-  padding: var(--unit-4) var(--unit-2) var(--unit-2) var(--unit-2);
+  padding: var(--unit-2) var(--unit-2) var(--unit-2) var(--unit-2);
 }
 
 .starred-chats-button {
