@@ -13,9 +13,9 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app()
 
 # Initialize the Anthropic client
-LOCATION = "us-east5"
+LOCATION = "global"
 PROJECT_ID = "wz-cloud-claude"
-MODEL = "claude-opus-4@20250514"
+MODEL = "claude-sonnet-4-5@20250929"
 
 client = AnthropicVertex(region=LOCATION, project_id=PROJECT_ID)
 
