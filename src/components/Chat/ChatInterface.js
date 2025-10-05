@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
 import ChatSidebar from './ChatSidebar';
@@ -10,6 +11,9 @@ import { updateMessage, deleteMessage } from '../../services/firebase';
 import './ChatInterface.css';
 
 function ChatInterface({ user, onThemeToggle, theme }) {
+  const { chatId } = useParams();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -107,15 +111,18 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     clearCurrentChat();
     setSidebarOpen(false);
     setViewMode('home');
+    navigate('/');
   };
 
   const handleStarredChatsClick = () => {
     setSidebarOpen(false);
     setViewMode('starred');
+    navigate('/starred');
   };
 
   const handleBackFromStarred = () => {
     setViewMode('home');
+    navigate('/');
   };
 
   const handleSelectChat = (chat) => {
@@ -124,6 +131,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     setSidebarOpen(false);
     setViewMode('chat');
     setTargetMessageId(null);
+    navigate(`/chat/${chat.id}`);
   };
 
   const handleStartNewChat = async () => {
@@ -134,6 +142,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
         selectChat(newChat);
         switchChat(chatId);
         setViewMode('chat');
+        navigate(`/chat/${chatId}`);
       }
     } catch (error) {
       console.error('Error creating new chat:', error);
@@ -151,8 +160,28 @@ function ChatInterface({ user, onThemeToggle, theme }) {
       setViewMode('chat');
       // Set the target message ID to scroll to
       setTargetMessageId(result.messageId);
+      navigate(`/chat/${result.chatId}`);
     }
   };
+
+  // Load chat from URL parameter on mount or when chatId changes
+  useEffect(() => {
+    if (chatId && userChats.length > 0) {
+      const chat = userChats.find(c => c.id === chatId);
+      if (chat && (!currentChat || currentChat.id !== chatId)) {
+        selectChat(chat);
+        switchChat(chatId);
+        setViewMode('chat');
+      } else if (!chat) {
+        // Chat not found, redirect to home
+        navigate('/');
+      }
+    } else if (location.pathname === '/starred') {
+      setViewMode('starred');
+    } else if (!chatId) {
+      setViewMode('home');
+    }
+  }, [chatId, userChats, location.pathname]);
 
   // Update viewMode when currentChat changes
   useEffect(() => {

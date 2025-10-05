@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
 import ChatInterface from './components/Chat/ChatInterface';
@@ -43,21 +44,44 @@ function App() {
 
   if (!user) {
     return (
-      <div className="app-container">
-        <SignIn />
-      </div>
+      <BrowserRouter>
+        <div className="app-container">
+          <SignIn />
+        </div>
+      </BrowserRouter>
     );
   }
 
-  // Always render ChatInterface when authenticated
+  // Always render ChatInterface when authenticated with routing
   return (
-    <div className="app-container">
-      <ChatInterface 
-        user={user} 
-        onThemeToggle={toggleTheme} 
-        theme={theme} 
-      />
-    </div>
+    <BrowserRouter>
+      <div className="app-container">
+        <Routes>
+          <Route path="/" element={
+            <ChatInterface 
+              user={user} 
+              onThemeToggle={toggleTheme} 
+              theme={theme} 
+            />
+          } />
+          <Route path="/chat/:chatId" element={
+            <ChatInterface 
+              user={user} 
+              onThemeToggle={toggleTheme} 
+              theme={theme} 
+            />
+          } />
+          <Route path="/starred" element={
+            <ChatInterface 
+              user={user} 
+              onThemeToggle={toggleTheme} 
+              theme={theme} 
+            />
+          } />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </div>
+    </BrowserRouter>
   );
 }
 
