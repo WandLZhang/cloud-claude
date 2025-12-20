@@ -3,15 +3,13 @@ import {
   getAuth, 
   GoogleAuthProvider, 
   signInWithPopup, 
-  signOut,
-  onAuthStateChanged 
+  signOut
 } from 'firebase/auth';
 import { 
   getFirestore, 
   collection, 
   doc, 
-  setDoc, 
-  getDoc,
+  setDoc,
   getDocs,
   addDoc,
   updateDoc,
@@ -311,41 +309,32 @@ export const subscribeToUserPrompts = (userId, callback) => {
 // Search functions
 export const searchMessages = async (userId, searchQuery) => {
   try {
-    const results = [];
-    const lowerQuery = searchQuery.toLowerCase();
+    // Use the Cloud Function for search
+    const searchUrl = 'https://us-central1-wz-cloud-claude.cloudfunctions.net/search-messages';
     
-    // Get all user chats
-    const chatsRef = collection(db, 'chats', userId, 'conversations');
-    const chatsSnapshot = await getDocs(chatsRef);
+    const response = await fetch(searchUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        userId,
+        query: searchQuery,
+        limit: 50
+      })
+    });
     
-    // Search through each chat's messages
-    for (const chatDoc of chatsSnapshot.docs) {
-      const chatData = chatDoc.data();
-      const chatId = chatDoc.id;
-      const chatTitle = chatData.title || 'Untitled Chat';
-      
-      // Get messages for this chat
-      const messagesRef = collection(db, 'chats', userId, 'conversations', chatId, 'messages');
-      const messagesSnapshot = await getDocs(messagesRef);
-      
-      // Search through messages
-      messagesSnapshot.docs.forEach(messageDoc => {
-        const messageData = messageDoc.data();
-        const messageContent = messageData.content || '';
-        
-        // Check if message content contains search query (case-insensitive)
-        if (messageContent.toLowerCase().includes(lowerQuery)) {
-          results.push({
-            chatId,
-            chatTitle,
-            messageId: messageDoc.id,
-            content: messageContent,
-            timestamp: messageData.timestamp,
-            role: messageData.role
-          });
-        }
-      });
+    if (!response.ok) {
+      throw new Error(`Search failed: ${response.statusText}`);
     }
+    
+    const data = await response.json();
+    
+    // Convert timestamp strings back to Firestore timestamps
+    const results = data.results.map(result => ({
+      ...result,
+      timestamp: result.timestamp ? new Date(result.timestamp) : null
+    }));
     
     return results;
   } catch (error) {

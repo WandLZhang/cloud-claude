@@ -19,6 +19,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [viewMode, setViewMode] = useState('home'); // 'home', 'chat', 'starred'
   const [targetMessageId, setTargetMessageId] = useState(null);
+  const [scrollTrigger, setScrollTrigger] = useState(0);
   const messagesEndRef = useRef(null);
 
   const { userChats, currentChat, clearCurrentChat, selectChat, createNewChat } = useFirestore(user.uid);
@@ -40,6 +41,12 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   // Scroll when messages change
   useEffect(() => {
     if (messages.length === 0) return;
+    
+    // Don't scroll to bottom if we have a target message
+    if (targetMessageId) {
+      console.log('[ChatInterface] Skipping scroll to bottom - targetMessageId is set:', targetMessageId);
+      return;
+    }
 
     // Check if we're streaming (last message has isStreaming flag)
     const lastMessage = messages[messages.length - 1];
@@ -55,7 +62,10 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     // Increase delay for initial load to ensure proper rendering
     const scrollDelay = isInitialLoad ? 300 : 0;
     
+    console.log('[ChatInterface] Scheduling scroll to bottom - delay:', scrollDelay, 'streaming:', isCurrentlyStreaming);
+    
     const timeoutId = setTimeout(() => {
+      console.log('[ChatInterface] Executing scrollToBottom from messages effect');
       scrollToBottom(scrollBehavior);
     }, scrollDelay);
 
@@ -64,28 +74,35 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     isStreamingRef.current = isCurrentlyStreaming;
 
     return () => clearTimeout(timeoutId);
-  }, [messages]);
+  }, [messages, targetMessageId]);
 
   // Additional scroll trigger specifically for chat switching
   useEffect(() => {
-    if (currentChat?.id && messages.length > 0) {
+    if (currentChat?.id && messages.length > 0 && !targetMessageId) {
+      console.log('[ChatInterface] Chat switch scroll triggered - chatId:', currentChat.id);
+      
       // Multiple attempts to ensure scrolling works
       // Immediate attempt
+      console.log('[ChatInterface] Immediate scrollToBottom on chat switch');
       scrollToBottom('auto');
       
       // After next frame
       requestAnimationFrame(() => {
+        console.log('[ChatInterface] RequestAnimationFrame scrollToBottom');
         scrollToBottom('auto');
       });
       
       // After a delay
       const timeoutId = setTimeout(() => {
+        console.log('[ChatInterface] 500ms timeout scrollToBottom');
         scrollToBottom('auto');
       }, 500);
       
       return () => clearTimeout(timeoutId);
+    } else if (targetMessageId) {
+      console.log('[ChatInterface] Skipping chat switch scroll - targetMessageId is set:', targetMessageId);
     }
-  }, [currentChat?.id, messages]);
+  }, [currentChat?.id, messages, targetMessageId]);
 
   // Reset message count when chat changes
   useEffect(() => {
@@ -151,16 +168,39 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   };
 
   const handleSelectSearchResult = async (result) => {
+    console.log('[ChatInterface] handleSelectSearchResult called - messageId:', result.messageId);
+    
     // First, select the chat
     const chat = userChats.find(c => c.id === result.chatId);
     if (chat) {
-      selectChat(chat);
-      switchChat(result.chatId);
-      setSidebarOpen(false);
-      setViewMode('chat');
-      // Set the target message ID to scroll to
-      setTargetMessageId(result.messageId);
-      navigate(`/chat/${result.chatId}`);
+      // Store the target message ID
+      const targetId = result.messageId;
+      
+      // If we're already on this chat, just set the targetMessageId
+      if (currentChat?.id === result.chatId) {
+        console.log('[ChatInterface] Already on chat, setting targetMessageId:', targetId);
+        // Set the target and trigger a new scroll
+        setTargetMessageId(targetId);
+        setScrollTrigger(Date.now()); // Force re-trigger
+        setSidebarOpen(false);
+      } else {
+        // Otherwise, switch to the chat
+        console.log('[ChatInterface] Switching to different chat:', result.chatId);
+        selectChat(chat);
+        await switchChat(result.chatId);
+        setSidebarOpen(false);
+        setViewMode('chat');
+        
+        // Set targetMessageId after a delay to ensure messages are loaded
+        console.log('[ChatInterface] Scheduling targetMessageId set after 1000ms');
+        setTimeout(() => {
+          console.log('[ChatInterface] Setting targetMessageId after delay:', targetId);
+          setTargetMessageId(targetId);
+          setScrollTrigger(Date.now());
+        }, 1000);
+        
+        navigate(`/chat/${result.chatId}`);
+      }
     }
   };
 
@@ -172,6 +212,11 @@ function ChatInterface({ user, onThemeToggle, theme }) {
         selectChat(chat);
         switchChat(chatId);
         setViewMode('chat');
+        
+        // Check if we have a targetMessageId in navigation state
+        if (location.state?.targetMessageId) {
+          setTargetMessageId(location.state.targetMessageId);
+        }
       } else if (!chat) {
         // Chat not found, redirect to home
         navigate('/');
@@ -181,7 +226,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     } else if (!chatId) {
       setViewMode('home');
     }
-  }, [chatId, userChats, location.pathname]);
+  }, [chatId, userChats, location.pathname, location.state]);
 
   // Update viewMode when currentChat changes
   useEffect(() => {
@@ -217,6 +262,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
               userId={user.uid}
               chatId={currentChat.id}
               targetMessageId={targetMessageId}
+              scrollTrigger={scrollTrigger}
               onScrollComplete={() => setTargetMessageId(null)}
             />
             <div ref={messagesEndRef} />

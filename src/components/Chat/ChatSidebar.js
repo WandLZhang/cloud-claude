@@ -119,8 +119,8 @@ function ChatSidebar({
   };
 
   const handleSearchResultClick = (result) => {
-    setShowSearchResults(false);
-    setSearchQuery('');
+    // Don't clear search query or hide results
+    // Just close the sidebar
     onSelectSearchResult(result);
   };
 
@@ -187,7 +187,10 @@ function ChatSidebar({
             <div className="starred-chats-section">
               <button 
                 className="starred-chats-button"
-                onClick={onStarredChatsClick}
+                onClick={() => {
+                  handleClearSearch();
+                  onStarredChatsClick();
+                }}
               >
                 <span className="icon">star</span>
                 <span>Starred Chats</span>
@@ -200,7 +203,10 @@ function ChatSidebar({
                 <div className="empty-state">
                   <p>No previous chats</p>
                   <button 
-                    onClick={onNewChat}
+                    onClick={() => {
+                      handleClearSearch();
+                      onNewChat();
+                    }}
                   >
                     Start New Chat
                   </button>
@@ -208,12 +214,23 @@ function ChatSidebar({
               ) : (
                 <>
                   {userChats.map((chat) => (
-                  <button
+                  <div
                     key={chat.id}
                     className={`chat-item ${currentChatId === chat.id ? 'active' : ''}`}
-                    onClick={() => onSelectChat(chat)}
+                    onClick={() => {
+                      handleClearSearch();
+                      onSelectChat(chat);
+                    }}
                     onMouseEnter={() => setHoveredChatId(chat.id)}
                     onMouseLeave={() => setHoveredChatId(null)}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && editingChatId !== chat.id) {
+                        handleClearSearch();
+                        onSelectChat(chat);
+                      }
+                    }}
                   >
                     <div className="chat-item-content">
                       {editingChatId === chat.id ? (
@@ -334,7 +351,7 @@ function ChatSidebar({
                         </>
                       )}
                     </div>
-                  </button>
+                  </div>
                 ))}
                 </>
               )}
@@ -342,7 +359,10 @@ function ChatSidebar({
             {userChats.length > 0 && (
               <div className="sidebar-bottom">
                 <button 
-                  onClick={onNewChat}
+                  onClick={() => {
+                    handleClearSearch();
+                    onNewChat();
+                  }}
                 >
                   Start New Chat
                 </button>

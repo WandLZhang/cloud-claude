@@ -1,17 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { searchMessages } from '../../services/firebase';
 import LoadingSpinner from '../Common/LoadingSpinner';
 import './SearchResults.css';
+
+// Simple in-memory cache
+const searchCache = new Map();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 function SearchResults({ searchQuery, userId, onSelectResult }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const cacheTimerRef = useRef(null);
 
   useEffect(() => {
     const performSearch = async () => {
       if (!searchQuery.trim()) {
         setResults([]);
+        return;
+      }
+
+      // Check cache first
+      const cacheKey = `${userId}-${searchQuery.toLowerCase()}`;
+      const cachedData = searchCache.get(cacheKey);
+      
+      if (cachedData && Date.now() - cachedData.timestamp < CACHE_TTL) {
+        setResults(cachedData.results);
         return;
       }
 
@@ -26,6 +40,26 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
           const bTime = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
           return bTime - aTime;
         });
+        
+        // Cache the results
+        searchCache.set(cacheKey, {
+          results: sortedResults,
+          timestamp: Date.now()
+        });
+        
+        // Clean up old cache entries periodically
+        if (cacheTimerRef.current) {
+          clearTimeout(cacheTimerRef.current);
+        }
+        cacheTimerRef.current = setTimeout(() => {
+          const now = Date.now();
+          for (const [key, value] of searchCache.entries()) {
+            if (now - value.timestamp > CACHE_TTL) {
+              searchCache.delete(key);
+            }
+          }
+        }, CACHE_TTL);
+        
         setResults(sortedResults);
       } catch (err) {
         console.error('Search error:', err);
@@ -40,6 +74,15 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
     const timeoutId = setTimeout(performSearch, 300);
     return () => clearTimeout(timeoutId);
   }, [searchQuery, userId]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (cacheTimerRef.current) {
+        clearTimeout(cacheTimerRef.current);
+      }
+    };
+  }, []);
 
   const formatTimestamp = (timestamp) => {
     if (!timestamp) return '';
