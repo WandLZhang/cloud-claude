@@ -8,11 +8,26 @@ import {
 } from '../services/firebase';
 import { streamMessageToClaud } from '../services/messageService';
 
-export function useChat(userId, selectedChatId = null) {
+export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentChatId, setCurrentChatId] = useState(selectedChatId);
+  const [chatConfig, setChatConfig] = useState(selectedChatConfig); // Store chat-level config (e.g., disableThinking)
   const messagesRef = useRef([]);
+  const chatConfigRef = useRef(selectedChatConfig);
+  
+  // Keep chatConfigRef in sync with chatConfig state
+  useEffect(() => {
+    chatConfigRef.current = chatConfig;
+  }, [chatConfig]);
+  
+  // Update chatConfig when selectedChatConfig changes (e.g., when switching to existing chat)
+  useEffect(() => {
+    if (selectedChatConfig && Object.keys(selectedChatConfig).length > 0) {
+      console.log('[useChat] Updating chatConfig from selectedChatConfig:', selectedChatConfig);
+      setChatConfig(selectedChatConfig);
+    }
+  }, [selectedChatConfig]);
   
   // Keep messagesRef in sync with messages state
   useEffect(() => {
@@ -83,7 +98,7 @@ export function useChat(userId, selectedChatId = null) {
     };
   }, [userId, currentChatId]);
 
-  const sendMessage = useCallback(async (content, image) => {
+  const sendMessage = useCallback(async (content, image, newChatConfig = {}) => {
     if (!userId || (!content.trim() && !image)) return;
 
     try {
@@ -92,6 +107,9 @@ export function useChat(userId, selectedChatId = null) {
       
       // Use the latest messages from ref to avoid stale closure
       const currentMessages = messagesRef.current;
+      
+      // Use provided config or fall back to stored config
+      const effectiveConfig = Object.keys(newChatConfig).length > 0 ? newChatConfig : chatConfigRef.current;
       
       // Create chat only on first message
       if (!chatId) {
@@ -106,8 +124,15 @@ export function useChat(userId, selectedChatId = null) {
           title = 'Image Chat';
         }
         
-        chatId = await createChat(userId, { title });
+        // Include config in chat document (e.g., disableThinking)
+        const chatData = { title };
+        if (newChatConfig.disableThinking) {
+          chatData.disableThinking = true;
+        }
+        
+        chatId = await createChat(userId, chatData);
         setCurrentChatId(chatId);
+        setChatConfig(newChatConfig); // Store config for subsequent messages
         isNewChat = true;
       }
 
@@ -149,8 +174,8 @@ export function useChat(userId, selectedChatId = null) {
             let fullContent = '';
             let finalResponse = null;
 
-            // Stream the response - use current messages from ref
-            const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image);
+            // Stream the response - use current messages from ref, pass config
+            const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image, effectiveConfig);
             
             for await (const data of stream) {
               if (data.type === 'chunk') {
@@ -201,8 +226,8 @@ export function useChat(userId, selectedChatId = null) {
       let fullContent = '';
       let finalResponse = null;
 
-      // Stream the response - use current messages from ref
-      const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image);
+      // Stream the response - use current messages from ref, pass config
+      const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image, effectiveConfig);
       
       for await (const data of stream) {
         if (data.type === 'chunk') {

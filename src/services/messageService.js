@@ -1,6 +1,6 @@
 const CLOUD_FUNCTION_URL = process.env.REACT_APP_CLOUD_FUNCTION_URL;
 
-export async function* streamMessageToClaud(previousMessages, newContent, image) {
+export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}) {
   try {
     // Prepare messages array for Claude
     const messages = previousMessages.map(msg => {
@@ -50,6 +50,12 @@ export async function* streamMessageToClaud(previousMessages, newContent, image)
         url: image.url,
         type: image.type
       };
+    }
+
+    // Add disable_thinking flag if specified in config
+    if (config.disableThinking) {
+      payload.disable_thinking = true;
+      console.log('[messageService] Sending with disable_thinking=true');
     }
 
     // Use fetch for streaming support

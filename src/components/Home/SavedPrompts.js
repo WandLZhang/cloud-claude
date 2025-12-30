@@ -8,7 +8,7 @@ import {
 } from '../../services/firebase';
 import './SavedPrompts.css';
 
-function SavedPrompts({ userId, onSelectPrompt }) {
+function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
   const [prompts, setPrompts] = useState([]);
   const [selectedPromptId, setSelectedPromptId] = useState('');
   const [showAddPrompt, setShowAddPrompt] = useState(false);
@@ -31,6 +31,10 @@ function SavedPrompts({ userId, onSelectPrompt }) {
     if (prompt) {
       setSelectedPromptId(promptId);
       onSelectPrompt(prompt.content);
+      // Also pass full prompt object if callback provided
+      if (onSelectPromptFull) {
+        onSelectPromptFull(prompt);
+      }
       // Update last used timestamp
       try {
         await updatePromptLastUsed(userId, promptId);
@@ -40,6 +44,9 @@ function SavedPrompts({ userId, onSelectPrompt }) {
     } else {
       setSelectedPromptId('');
       onSelectPrompt('');
+      if (onSelectPromptFull) {
+        onSelectPromptFull(null);
+      }
     }
   };
 

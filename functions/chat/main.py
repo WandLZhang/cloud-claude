@@ -97,6 +97,9 @@ def chat(request):
         system_prompt = request_json.get('system_prompt')
         use_cache = request_json.get('use_cache', True)
         max_tokens = request_json.get('max_tokens', 8192)  # Maximum output tokens
+        disable_thinking = request_json.get('disable_thinking', False)  # Disable thinking mode for certain prompts
+        
+        print(f"Request config: disable_thinking={disable_thinking}, use_cache={use_cache}, max_tokens={max_tokens}")
         
         # Handle image data - convert URL to base64 if needed
         if image_data:
@@ -204,16 +207,22 @@ def chat(request):
         print(f"Total messages after processing: {len(all_messages)}")
         print(f"Total cache blocks used: 1 (system) + {len(cached_assistant_indices)} (assistant messages) = {1 + len(cached_assistant_indices)}")
         
-        # Prepare the message options with thinking enabled
+        # Prepare the message options
         message_options = {
             'max_tokens': max_tokens,
             'messages': all_messages,
             'model': MODEL,
-            'thinking': {
+        }
+        
+        # Add thinking mode unless disabled
+        if disable_thinking:
+            print("Thinking mode DISABLED for this request")
+        else:
+            print("Thinking mode ENABLED with 6553 token budget")
+            message_options['thinking'] = {
                 'type': 'enabled',
                 'budget_tokens': 6553
             }
-        }
         
         # Add system prompt as top-level parameter if provided
         if system_prompt:

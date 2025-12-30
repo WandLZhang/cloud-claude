@@ -10,15 +10,22 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState('');
   const [selectedPromptContent, setSelectedPromptContent] = useState('');
+  const [selectedPrompt, setSelectedPrompt] = useState(null);
   const { sendMessage } = useChat(user.uid, null);
+
+  // Determine if thinking should be disabled based on prompt title
+  const shouldDisableThinking = selectedPrompt?.title?.toLowerCase().includes('everyday chinese');
 
   const handleSendMessage = async (content, image) => {
     setError('');
     setIsThinking(true);
     
     try {
+      // Build chat config based on selected prompt
+      const chatConfig = shouldDisableThinking ? { disableThinking: true } : {};
+      
       // sendMessage will create a new chat and return the chat ID
-      const result = await sendMessage(content, image);
+      const result = await sendMessage(content, image, chatConfig);
       
       if (result && result.chatId && result.isNewChat) {
         // Immediately navigate to the new chat with a temporary chat object
@@ -85,6 +92,7 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
         <SavedPrompts 
           userId={user.uid} 
           onSelectPrompt={setSelectedPromptContent}
+          onSelectPromptFull={setSelectedPrompt}
         />
 
         {/* Recent chats section */}

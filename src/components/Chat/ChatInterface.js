@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import MessageList from './MessageList';
 import ChatInput from './ChatInput';
@@ -23,7 +23,14 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   const messagesEndRef = useRef(null);
 
   const { userChats, currentChat, clearCurrentChat, selectChat, createNewChat } = useFirestore(user.uid);
-  const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id);
+  
+  // Extract chat config from currentChat (e.g., disableThinking for "Everyday Chinese" chats)
+  // Use useMemo to prevent creating new object reference on every render (avoids infinite loop)
+  const currentChatConfig = useMemo(() => {
+    return currentChat?.disableThinking ? { disableThinking: true } : {};
+  }, [currentChat?.disableThinking]);
+  
+  const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id, currentChatConfig);
   const previousMessagesLength = useRef(0);
   const isStreamingRef = useRef(false);
 
