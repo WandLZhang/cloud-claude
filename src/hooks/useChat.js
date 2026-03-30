@@ -99,7 +99,7 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
   }, [userId, currentChatId]);
 
   const sendMessage = useCallback(async (content, image, newChatConfig = {}) => {
-    if (!userId || (!content.trim() && !image)) return;
+    if (!userId || (!content.trim() && !image && !newChatConfig.document)) return;
 
     try {
       let chatId = currentChatId;
@@ -108,8 +108,8 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
       // Use the latest messages from ref to avoid stale closure
       const currentMessages = messagesRef.current;
       
-      // Use provided config or fall back to stored config
-      const effectiveConfig = Object.keys(newChatConfig).length > 0 ? newChatConfig : chatConfigRef.current;
+      // Merge stored config with new config (new values override stored ones)
+      const effectiveConfig = { ...chatConfigRef.current, ...newChatConfig };
       
       // Create chat only on first message
       if (!chatId) {
@@ -124,11 +124,11 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
           title = 'Image Chat';
         }
         
-        // Include config in chat document (e.g., disableThinking)
+        // Include config in chat document for persistence across reloads
         const chatData = { title };
-        if (newChatConfig.disableThinking) {
-          chatData.disableThinking = true;
-        }
+        if (newChatConfig.disableThinking) chatData.disableThinking = true;
+        if (newChatConfig.useFastModel) chatData.useFastModel = true;
+        if (newChatConfig.systemPrompt) chatData.systemPrompt = newChatConfig.systemPrompt;
         
         chatId = await createChat(userId, chatData);
         setCurrentChatId(chatId);
@@ -152,6 +152,24 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
           console.error('Error uploading image:', error);
           throw new Error('Failed to upload image. Please try again.');
         }
+      }
+
+      // Upload document (PDF) if present
+      if (newChatConfig.document && newChatConfig.document.file) {
+        try {
+          const uploadedDoc = await uploadImage(userId, newChatConfig.document.file);
+          userMessage.document = uploadedDoc;
+          // Add document to the effective config for the API call
+          effectiveConfig.document = uploadedDoc;
+        } catch (error) {
+          console.error('Error uploading document:', error);
+          throw new Error('Failed to upload document. Please try again.');
+        }
+      }
+
+      // Pass web search flag through config
+      if (newChatConfig.enableWebSearch) {
+        effectiveConfig.enableWebSearch = true;
       }
 
       await addMessage(userId, chatId, userMessage);
@@ -200,11 +218,16 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
             if (finalResponse?.thinking) {
               finalUpdate.thinking = finalResponse.thinking;
             }
+            if (finalResponse?.citations) {
+              finalUpdate.citations = finalResponse.citations;
+            }
+            if (finalResponse?.model) {
+              finalUpdate.model = finalResponse.model;
+            }
 
             await updateMessage(userId, chatId, messageId, finalUpdate);
           } catch (error) {
             console.error('Error getting Claude response:', error);
-            // Optionally add an error message to the chat
           }
         })();
 
@@ -251,6 +274,12 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
 
       if (finalResponse?.thinking) {
         finalUpdate.thinking = finalResponse.thinking;
+      }
+      if (finalResponse?.citations) {
+        finalUpdate.citations = finalResponse.citations;
+      }
+      if (finalResponse?.model) {
+        finalUpdate.model = finalResponse.model;
       }
 
       await updateMessage(userId, chatId, messageId, finalUpdate);

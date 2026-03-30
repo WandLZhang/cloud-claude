@@ -27,8 +27,12 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   // Extract chat config from currentChat (e.g., disableThinking for "Everyday Chinese" chats)
   // Use useMemo to prevent creating new object reference on every render (avoids infinite loop)
   const currentChatConfig = useMemo(() => {
-    return currentChat?.disableThinking ? { disableThinking: true } : {};
-  }, [currentChat?.disableThinking]);
+    const config = {};
+    if (currentChat?.disableThinking) config.disableThinking = true;
+    if (currentChat?.useFastModel) config.useFastModel = true;
+    if (currentChat?.systemPrompt) config.systemPrompt = currentChat.systemPrompt;
+    return config;
+  }, [currentChat?.disableThinking, currentChat?.useFastModel, currentChat?.systemPrompt]);
   
   const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id, currentChatConfig);
   const previousMessagesLength = useRef(0);
@@ -116,12 +120,12 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     previousMessagesLength.current = 0;
   }, [currentChat?.id]);
 
-  const handleSendMessage = async (content, image) => {
+  const handleSendMessage = async (content, image, extraOptions = {}) => {
     setError('');
     setIsThinking(true);
-    
+
     try {
-      await sendMessage(content, image);
+      await sendMessage(content, image, extraOptions);
     } catch (err) {
       console.error('Error sending message:', err);
       setError('Failed to send message. Please try again.');

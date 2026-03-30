@@ -80,9 +80,9 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
           />
         )}
         {message.image && (
-          <img 
-            src={message.image.url} 
-            alt="Uploaded image" 
+          <img
+            src={message.image.url}
+            alt="Uploaded image"
             style={{
               maxWidth: '200px',
               maxHeight: '200px',
@@ -90,6 +90,21 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
               marginBottom: 'var(--unit-2)'
             }}
           />
+        )}
+        {message.document && (
+          <div style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--unit-2)',
+            padding: 'var(--unit-2) var(--unit-3)',
+            borderRadius: 'var(--unit-2)',
+            border: '1px solid var(--outline-variant)',
+            backgroundColor: 'var(--surface-container-low)',
+            marginBottom: 'var(--unit-2)'
+          }}>
+            <span className="icon" style={{ fontSize: '20px', color: 'var(--primary)' }}>description</span>
+            <span style={{ fontSize: '14px' }}>{message.document.name || 'Document'}</span>
+          </div>
         )}
         {isUser ? (
           isEditing ? (
@@ -127,6 +142,47 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
                   <span></span>
                   <span></span>
                   <span></span>
+                </div>
+              </div>
+            )}
+            {message.citations && message.citations.length > 0 && (
+              <div style={{
+                marginTop: 'var(--unit-3)',
+                paddingTop: 'var(--unit-2)',
+                borderTop: '1px solid var(--outline-variant)'
+              }}>
+                <div style={{
+                  fontSize: '12px',
+                  fontWeight: 600,
+                  color: 'var(--on-surface-variant)',
+                  marginBottom: 'var(--unit-1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 'var(--unit-1)'
+                }}>
+                  <span className="icon" style={{ fontSize: '14px' }}>travel_explore</span>
+                  Sources
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {message.citations.map((citation, idx) => (
+                    <a
+                      key={idx}
+                      href={citation.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        fontSize: '12px',
+                        color: 'var(--primary)',
+                        textDecoration: 'none',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '4px'
+                      }}
+                    >
+                      <span className="icon" style={{ fontSize: '12px' }}>link</span>
+                      {citation.title || citation.url}
+                    </a>
+                  ))}
                 </div>
               </div>
             )}

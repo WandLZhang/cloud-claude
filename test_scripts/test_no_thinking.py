@@ -17,7 +17,7 @@ import sys
 # Configuration - matching the backend
 LOCATION = "global"
 PROJECT_ID = "wz-cloud-claude"
-MODEL = "claude-sonnet-4-5@20250929"
+MODEL = "claude-opus-4-6"
 MAX_TOKENS = 8192
 
 # Predefined conversation

@@ -16,14 +16,25 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
   // Determine if thinking should be disabled based on prompt title
   const shouldDisableThinking = selectedPrompt?.title?.toLowerCase().includes('everyday chinese');
 
-  const handleSendMessage = async (content, image) => {
+  const handleSendMessage = async (content, image, extraOptions = {}) => {
     setError('');
     setIsThinking(true);
-    
+
     try {
       // Build chat config based on selected prompt
-      const chatConfig = shouldDisableThinking ? { disableThinking: true } : {};
-      
+      const chatConfig = {};
+      if (shouldDisableThinking || selectedPrompt?.disableThinking) {
+        chatConfig.disableThinking = true;
+      }
+      if (selectedPrompt?.useFastModel) {
+        chatConfig.useFastModel = true;
+      }
+      if (selectedPrompt?.systemPrompt) {
+        chatConfig.systemPrompt = selectedPrompt.systemPrompt;
+      }
+      // Merge extra options from ChatInput (web search, document, etc.)
+      Object.assign(chatConfig, extraOptions);
+
       // sendMessage will create a new chat and return the chat ID
       const result = await sendMessage(content, image, chatConfig);
       

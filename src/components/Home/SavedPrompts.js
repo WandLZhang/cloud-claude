@@ -14,6 +14,9 @@ function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
   const [showAddPrompt, setShowAddPrompt] = useState(false);
   const [newPromptTitle, setNewPromptTitle] = useState('');
   const [newPromptContent, setNewPromptContent] = useState('');
+  const [newPromptSystemPrompt, setNewPromptSystemPrompt] = useState('');
+  const [newPromptDisableThinking, setNewPromptDisableThinking] = useState(false);
+  const [newPromptUseFastModel, setNewPromptUseFastModel] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -58,12 +61,25 @@ function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
     setError('');
 
     try {
-      await createPrompt(userId, {
+      const promptData = {
         title: newPromptTitle.trim(),
         content: newPromptContent.trim()
-      });
+      };
+      if (newPromptSystemPrompt.trim()) {
+        promptData.systemPrompt = newPromptSystemPrompt.trim();
+      }
+      if (newPromptDisableThinking) {
+        promptData.disableThinking = true;
+      }
+      if (newPromptUseFastModel) {
+        promptData.useFastModel = true;
+      }
+      await createPrompt(userId, promptData);
       setNewPromptTitle('');
       setNewPromptContent('');
+      setNewPromptSystemPrompt('');
+      setNewPromptDisableThinking(false);
+      setNewPromptUseFastModel(false);
       setShowAddPrompt(false);
     } catch (err) {
       console.error('Error creating prompt:', err);
@@ -159,7 +175,40 @@ function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
                   required
                 />
               </div>
-              
+
+              <div className="form-field">
+                <label htmlFor="prompt-system">System Prompt (optional)</label>
+                <textarea
+                  id="prompt-system"
+                  value={newPromptSystemPrompt}
+                  onChange={(e) => setNewPromptSystemPrompt(e.target.value)}
+                  placeholder="Custom instructions for Claude when using this prompt..."
+                  rows={3}
+                />
+              </div>
+
+              <div style={{ display: 'flex', gap: 'var(--unit-4)', marginBottom: 'var(--unit-3)' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--unit-2)', fontSize: '14px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={newPromptUseFastModel}
+                    onChange={(e) => {
+                      setNewPromptUseFastModel(e.target.checked);
+                      if (e.target.checked) setNewPromptDisableThinking(true);
+                    }}
+                  />
+                  Use Sonnet (fast mode)
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--unit-2)', fontSize: '14px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={newPromptDisableThinking}
+                    onChange={(e) => setNewPromptDisableThinking(e.target.checked)}
+                  />
+                  Disable thinking
+                </label>
+              </div>
+
               <div className="modal-actions">
                 <button
                   type="button"

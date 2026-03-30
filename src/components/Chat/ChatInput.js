@@ -3,6 +3,8 @@ import React, { useState, useRef, useEffect } from 'react';
 function ChatInput({ onSendMessage, disabled, placeholder = "Type your message...", value = '' }) {
   const [message, setMessage] = useState(value);
   const [selectedImage, setSelectedImage] = useState(null);
+  const [selectedDocument, setSelectedDocument] = useState(null);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
@@ -23,22 +25,28 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if ((message.trim() || selectedImage) && !disabled) {
+    if ((message.trim() || selectedImage || selectedDocument) && !disabled) {
       const messageToSend = message.trim();
       const imageToSend = selectedImage;
-      
+      const documentToSend = selectedDocument;
+      const webSearch = webSearchEnabled;
+
       // Clear state immediately before sending
       setMessage('');
       setSelectedImage(null);
-      
+      setSelectedDocument(null);
+
       // Reset textarea height
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
-        textareaRef.current.value = ''; // Force clear the textarea value
+        textareaRef.current.value = '';
       }
-      
-      // Send the message after clearing state
-      onSendMessage(messageToSend, imageToSend);
+
+      // Build extra options — only include keys that are set
+      const extraOptions = {};
+      if (documentToSend) extraOptions.document = documentToSend;
+      if (webSearch) extraOptions.enableWebSearch = true;
+      onSendMessage(messageToSend, imageToSend, extraOptions);
     }
   };
 
@@ -49,14 +57,30 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
     }
   };
 
-  const handleImageSelect = (file) => {
-    if (file && file.type.startsWith('image/')) {
-      // Check if file has actual content
-      if (file.size === 0) {
-        alert('This image is not accessible. Please download it to your device first.');
-        return;
-      }
-      
+  const handleFileSelect = (file) => {
+    if (!file || file.size === 0) {
+      alert('This file is not accessible. Please download it to your device first.');
+      return;
+    }
+
+    if (file.type === 'application/pdf') {
+      // Handle PDF document
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setSelectedDocument({
+          file,
+          url: e.target.result,
+          type: file.type,
+          name: file.name
+        });
+        setSelectedImage(null); // Can't have both at once
+      };
+      reader.onerror = () => {
+        alert('Unable to read this PDF. Please try again.');
+      };
+      reader.readAsDataURL(file);
+    } else if (file.type.startsWith('image/')) {
+      // Handle image
       const reader = new FileReader();
       reader.onload = (e) => {
         setSelectedImage({
@@ -64,14 +88,17 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
           url: e.target.result,
           type: file.type
         });
+        setSelectedDocument(null); // Can't have both at once
       };
-      reader.onerror = (error) => {
-        console.error('Error reading image:', error);
+      reader.onerror = () => {
         alert('Unable to read this image. If it\'s from Google Photos or another cloud service, please download it to your device first.');
       };
       reader.readAsDataURL(file);
     }
   };
+
+  // Keep backward compat alias
+  const handleImageSelect = handleFileSelect;
 
   const handleCameraCapture = async () => {
     try {
@@ -230,10 +257,10 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
   const handleDrop = (e) => {
     e.preventDefault();
     setIsDragging(false);
-    
+
     const file = e.dataTransfer.files[0];
     if (file) {
-      handleImageSelect(file);
+      handleFileSelect(file);
     }
   };
 
@@ -246,9 +273,9 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
             marginBottom: 'var(--unit-2)',
             display: 'inline-block'
           }}>
-            <img 
-              src={selectedImage.url} 
-              alt="Selected" 
+            <img
+              src={selectedImage.url}
+              alt="Selected"
               style={{
                 maxHeight: '100px',
                 borderRadius: 'var(--unit-2)',
@@ -268,6 +295,36 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
                 width: '24px',
                 height: '24px',
                 padding: 0
+              }}
+            >
+              <span className="icon" style={{ fontSize: '16px' }}>close</span>
+            </button>
+          </div>
+        )}
+
+        {selectedDocument && (
+          <div style={{
+            position: 'relative',
+            marginBottom: 'var(--unit-2)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 'var(--unit-2)',
+            padding: 'var(--unit-2) var(--unit-3)',
+            borderRadius: 'var(--unit-2)',
+            border: '1px solid var(--outline-variant)',
+            backgroundColor: 'var(--surface-container-low)'
+          }}>
+            <span className="icon" style={{ fontSize: '20px', color: 'var(--primary)' }}>description</span>
+            <span style={{ fontSize: '14px', color: 'var(--on-surface)' }}>{selectedDocument.name}</span>
+            <button
+              type="button"
+              onClick={() => setSelectedDocument(null)}
+              className="icon-button"
+              style={{
+                width: '24px',
+                height: '24px',
+                padding: 0,
+                marginLeft: 'var(--unit-1)'
               }}
             >
               <span className="icon" style={{ fontSize: '16px' }}>close</span>
@@ -294,11 +351,11 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
             className="icon-button"
-            aria-label="Attach image"
+            aria-label="Attach file"
           >
             <span className="icon">attach_file</span>
           </button>
-          
+
           <button
             type="button"
             onClick={handleCameraCapture}
@@ -308,12 +365,29 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
           >
             <span className="icon">photo_camera</span>
           </button>
-          
+
+          <button
+            type="button"
+            onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+            disabled={disabled}
+            className="icon-button"
+            aria-label="Toggle web search"
+            title={webSearchEnabled ? 'Web search ON' : 'Web search OFF'}
+            style={{
+              backgroundColor: webSearchEnabled ? 'var(--primary-container)' : 'transparent',
+              color: webSearchEnabled ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
+              borderRadius: 'var(--unit-3)',
+              transition: 'all 0.2s ease'
+            }}
+          >
+            <span className="icon">travel_explore</span>
+          </button>
+
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
-            onChange={(e) => e.target.files[0] && handleImageSelect(e.target.files[0])}
+            accept="image/*,.pdf,application/pdf"
+            onChange={(e) => e.target.files[0] && handleFileSelect(e.target.files[0])}
             style={{ display: 'none' }}
           />
           
@@ -339,7 +413,7 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
           
           <button
             type="submit"
-            disabled={disabled || (!message.trim() && !selectedImage)}
+            disabled={disabled || (!message.trim() && !selectedImage && !selectedDocument)}
             className="icon-button"
             aria-label="Send message"
             style={{
