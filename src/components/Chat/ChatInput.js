@@ -50,8 +50,12 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
     }
   };
 
+  const isMobile = () => {
+    return 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+  };
+
   const handleKeyDown = (e) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
+    if (e.key === 'Enter' && !e.shiftKey && !isMobile()) {
       e.preventDefault();
       handleSubmit(e);
     }
