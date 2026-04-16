@@ -14,7 +14,7 @@ import sys
 # Configuration
 LOCATION = "global"
 PROJECT_ID = "wz-cloud-claude"
-MODEL = "claude-opus-4-6"
+MODEL = "claude-opus-4-7"
 MAX_TOKENS = 8192
 
 # Web search tool definition
