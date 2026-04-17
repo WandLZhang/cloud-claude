@@ -210,12 +210,9 @@ def chat(request):
         if disable_thinking:
             print("Thinking mode DISABLED for this request")
         else:
-            # budget_tokens must be < max_tokens
-            thinking_budget = min(10000, max_tokens - 1)
-            print(f"Thinking mode ENABLED with {thinking_budget} token budget, model={model}")
+            print(f"Thinking mode ENABLED (adaptive), model={model}")
             message_options['thinking'] = {
-                'type': 'enabled',
-                'budget_tokens': thinking_budget
+                'type': 'adaptive'
             }
 
         # Add web search tool if enabled
