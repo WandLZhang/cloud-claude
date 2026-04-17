@@ -18,8 +18,8 @@ gcloud functions deploy $FUNCTION_NAME \
   --allow-unauthenticated \
   --project=$PROJECT_ID \
   --set-env-vars=GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
-  --cpu=6 \
-  --memory=8Gi \
+  --cpu=1 \
+  --memory=1Gi \
   --min-instances=1 \
   --max-instances=100 \
   --timeout=3600s

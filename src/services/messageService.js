@@ -34,7 +34,6 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
     // Prepare request payload
     const payload = {
       messages,
-      max_tokens: 8192,
       use_cache: true
     };
 

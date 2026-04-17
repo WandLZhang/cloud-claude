@@ -18,6 +18,10 @@ PROJECT_ID = "wz-cloud-claude"
 MODEL_DEFAULT = "claude-opus-4-7"
 MODEL_FAST = "claude-sonnet-4-6"
 
+# Max output tokens per model (Opus supports up to 128K, Sonnet stays at 8K for speed)
+MAX_TOKENS_OPUS = 128000
+MAX_TOKENS_SONNET = 8192
+
 client = AnthropicVertex(region=LOCATION, project_id=PROJECT_ID)
 
 def download_file_from_storage(url):
@@ -81,13 +85,13 @@ def chat(request):
         document_data = request_json.get('document')
         system_prompt = request_json.get('system_prompt')
         use_cache = request_json.get('use_cache', True)
-        max_tokens = request_json.get('max_tokens', 8192)
         disable_thinking = request_json.get('disable_thinking', False)
         use_fast_model = request_json.get('use_fast_model', False)
         enable_web_search = request_json.get('enable_web_search', False)
 
-        # Select model
+        # Select model and set per-model max output tokens
         model = MODEL_FAST if use_fast_model else MODEL_DEFAULT
+        max_tokens = MAX_TOKENS_SONNET if use_fast_model else MAX_TOKENS_OPUS
         print(f"Request config: model={model}, disable_thinking={disable_thinking}, use_cache={use_cache}, max_tokens={max_tokens}, web_search={enable_web_search}")
         print(f"Full request payload keys: {list(request_json.keys())}")
 
