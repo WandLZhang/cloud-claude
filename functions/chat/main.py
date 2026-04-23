@@ -95,25 +95,40 @@ def chat(request):
         print(f"Request config: model={model}, disable_thinking={disable_thinking}, use_cache={use_cache}, max_tokens={max_tokens}, web_search={enable_web_search}")
         print(f"Full request payload keys: {list(request_json.keys())}")
 
-        # Handle image data - convert URL to base64 if needed
-        if image_data:
-            if 'url' in image_data and image_data['url'].startswith('http'):
-                base64_data, content_type = download_file_from_storage(image_data['url'])
-                image_data = {'data': base64_data, 'media_type': content_type}
-            elif 'url' in image_data and image_data['url'].startswith('data:'):
-                base64_data = image_data['url'].split(',')[1]
-                media_type = image_data.get('type', 'image/jpeg')
-                image_data = {'data': base64_data, 'media_type': media_type}
+        # Per-request cache so the same Storage URL isn't downloaded twice
+        # (relevant when an image appears in history AND in the current turn,
+        # or when the same image is referenced across multiple historical turns).
+        download_cache = {}
 
-        # Handle document (PDF) data - convert URL to base64 if needed
+        def fetch_attachment(url, fallback_media_type='image/jpeg'):
+            """Resolve a Storage URL or data: URL to (base64_data, media_type), cached per-request."""
+            if url in download_cache:
+                return download_cache[url]
+            if url.startswith('http'):
+                b64, mime = download_file_from_storage(url)
+            elif url.startswith('data:'):
+                b64 = url.split(',', 1)[1]
+                mime_part = url.split(',', 1)[0]
+                mime = mime_part.split(';')[0].split(':', 1)[1] if ':' in mime_part else fallback_media_type
+            else:
+                raise ValueError(f"Unsupported attachment URL prefix: {url[:60]}")
+            download_cache[url] = (b64, mime)
+            print(f"  fetch_attachment: url={url[:80]}... mime={mime}, b64_len={len(b64)}")
+            return download_cache[url]
+
+        # Resolve current-turn (top-level) image to {data, media_type}
+        if image_data:
+            if 'url' in image_data:
+                b64, mime = fetch_attachment(image_data['url'], image_data.get('type', 'image/jpeg'))
+                image_data = {'data': b64, 'media_type': mime}
+                print(f"Current-turn image: media_type={mime}, data_length={len(b64)}")
+
+        # Resolve current-turn (top-level) document to {data, media_type}
         if document_data:
-            if 'url' in document_data and document_data['url'].startswith('http'):
-                base64_data, content_type = download_file_from_storage(document_data['url'])
-                document_data = {'data': base64_data, 'media_type': content_type}
-            elif 'url' in document_data and document_data['url'].startswith('data:'):
-                base64_data = document_data['url'].split(',')[1]
-                document_data = {'data': base64_data, 'media_type': 'application/pdf'}
-            print(f"Document attached: media_type={document_data.get('media_type')}, data_length={len(document_data.get('data', ''))}")
+            if 'url' in document_data:
+                b64, mime = fetch_attachment(document_data['url'], 'application/pdf')
+                document_data = {'data': b64, 'media_type': mime}
+                print(f"Current-turn document: media_type={mime}, data_length={len(b64)}")
 
         # Prepare messages (excluding system prompt)
         all_messages = []
@@ -131,49 +146,85 @@ def chat(request):
         print(f"Assistant message indices: {assistant_indices}")
         print(f"Will cache assistant messages at indices: {cached_assistant_indices}")
 
-        # Process regular messages
-        has_attachment = image_data or document_data
+        # Find the latest HISTORICAL message that has an image attached.
+        # We'll mark its image block with cache_control so the heavy base64
+        # payload stays in Anthropic's prompt cache across follow-up turns.
+        # (Current-turn image is fresh; we don't cache it since the next turn
+        # will move it into history and re-mark it then.)
+        latest_historical_image_idx = -1
+        for i, msg in enumerate(messages[:-1]):
+            if msg.get('image') and msg['image'].get('url'):
+                latest_historical_image_idx = i
+        if latest_historical_image_idx >= 0:
+            print(f"Latest historical image at index {latest_historical_image_idx} - will mark with cache_control")
+
+        # Process all messages. Each message may carry its own image/document
+        # via msg.image / msg.document (Storage URL refs). The current/last
+        # turn pulls its attachment from the top-level image_data/document_data
+        # set above.
+        last_idx = len(messages) - 1
         for i, msg in enumerate(messages):
-            print(f"Processing message {i}: role={msg['role']}, content_length={len(msg.get('content', ''))}")
+            is_last = (i == last_idx)
+            text_content = msg.get('content') or ''
 
-            # Skip empty messages unless it's the last one with an attachment
-            if not msg.get('content') or not msg['content'].strip():
-                if i == len(messages) - 1 and has_attachment:
-                    pass  # Keep this message for attachment
-                else:
-                    continue
+            # Determine attachments for THIS message
+            msg_image = None
+            msg_document = None
+            if is_last:
+                # Top-level current-turn attachments
+                msg_image = image_data
+                msg_document = document_data
+            else:
+                # Historical message — download per-message refs from Storage
+                if msg.get('image') and msg['image'].get('url'):
+                    b64, mime = fetch_attachment(msg['image']['url'], msg['image'].get('type', 'image/jpeg'))
+                    msg_image = {'data': b64, 'media_type': mime}
+                    print(f"  Historical image at msg {i}: mime={mime}, b64_len={len(b64)}")
+                if msg.get('document') and msg['document'].get('url'):
+                    b64, mime = fetch_attachment(msg['document']['url'], 'application/pdf')
+                    msg_document = {'data': b64, 'media_type': mime}
+                    print(f"  Historical document at msg {i}: mime={mime}, b64_len={len(b64)}")
 
-            # If this is the last message and we have attachments, combine them
-            if i == len(messages) - 1 and has_attachment:
+            has_msg_attachment = msg_image or msg_document
+            print(f"Processing message {i}: role={msg['role']}, content_length={len(text_content)}, has_attachment={bool(has_msg_attachment)}")
+
+            # Skip messages that have neither text nor attachment
+            if not text_content.strip() and not has_msg_attachment:
+                continue
+
+            if has_msg_attachment:
                 message_content = []
 
-                # Add image if present
-                if image_data:
-                    message_content.append({
+                if msg_image:
+                    img_block = {
                         'type': 'image',
                         'source': {
                             'type': 'base64',
-                            'media_type': image_data['media_type'],
-                            'data': image_data['data']
+                            'media_type': msg_image['media_type'],
+                            'data': msg_image['data']
                         }
-                    })
+                    }
+                    # Cache the latest historical image so subsequent turns
+                    # don't re-pay tokens for the same base64 payload.
+                    if use_cache and i == latest_historical_image_idx:
+                        img_block['cache_control'] = {'type': 'ephemeral'}
+                        print(f"  Added cache_control to image block at msg {i}")
+                    message_content.append(img_block)
 
-                # Add document (PDF) if present
-                if document_data:
+                if msg_document:
                     message_content.append({
                         'type': 'document',
                         'source': {
                             'type': 'base64',
-                            'media_type': document_data['media_type'],
-                            'data': document_data['data']
+                            'media_type': msg_document['media_type'],
+                            'data': msg_document['data']
                         }
                     })
 
-                # Add text content if not empty
-                if msg.get('content') and msg['content'].strip():
+                if text_content.strip():
                     message_content.append({
                         'type': 'text',
-                        'text': msg['content']
+                        'text': text_content
                     })
 
                 all_messages.append({
@@ -181,15 +232,15 @@ def chat(request):
                     'content': message_content
                 })
             else:
-                # Regular text message
+                # Text-only message
                 content_block = {
                     'type': 'text',
-                    'text': msg['content']
+                    'text': text_content
                 }
 
-                # Add caching to selected assistant messages
+                # Cache selected assistant messages (existing behavior)
                 if use_cache and msg['role'] == 'assistant' and i in cached_assistant_indices:
-                    if msg['content'].strip():
+                    if text_content.strip():
                         content_block['cache_control'] = {'type': 'ephemeral'}
 
                 all_messages.append({

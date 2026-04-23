@@ -5,24 +5,23 @@ be helpful, harmless, and honest. Provide thoughtful and detailed responses when
 
 export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}) {
   try {
-    // Prepare messages array for Claude
+    // Prepare messages array for Claude.
+    // Pass image/document Storage URLs through per-message so historical
+    // attachments are visible to the model on follow-up turns. The backend
+    // re-downloads each Storage URL and embeds it as an image/document block.
     const messages = previousMessages.map(msg => {
-      // Check if this message had an image or document
-      if (msg.image) {
-        const imageIndicator = '[User sent an image]';
-        const combinedContent = msg.content ?
-          `${imageIndicator}\n${msg.content}` :
-          imageIndicator;
-        return { role: msg.role, content: combinedContent };
+      const out = { role: msg.role, content: msg.content || '' };
+      if (msg.image && msg.image.url) {
+        out.image = { url: msg.image.url, type: msg.image.type };
       }
-      if (msg.document) {
-        const docIndicator = `[User sent a document: ${msg.document.name || 'file.pdf'}]`;
-        const combinedContent = msg.content ?
-          `${docIndicator}\n${msg.content}` :
-          docIndicator;
-        return { role: msg.role, content: combinedContent };
+      if (msg.document && msg.document.url) {
+        out.document = {
+          url: msg.document.url,
+          type: msg.document.type,
+          name: msg.document.name
+        };
       }
-      return { role: msg.role, content: msg.content };
+      return out;
     });
 
     // Add the new message
@@ -57,10 +56,19 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
       console.log('[messageService] Sending with document:', config.document.name);
     }
 
-    // Add disable_thinking flag if specified in config
+    // Add disable_thinking flag if specified in config.
+    // BUT override to false when any image is in play (current turn or history) -
+    // Opus 4.7 with thinking disabled tends to stop early on image translation
+    // tasks, mid-syllable. Image turns get full adaptive thinking even for the
+    // "Everyday Chinese" prompt; text-only turns stay fast.
     if (config.disableThinking) {
-      payload.disable_thinking = true;
-      console.log('[messageService] Sending with disable_thinking=true');
+      const hasAnyImage = !!image || previousMessages.some(m => m && m.image);
+      if (hasAnyImage) {
+        console.log('[messageService] Image attached - overriding disableThinking, enabling adaptive thinking');
+      } else {
+        payload.disable_thinking = true;
+        console.log('[messageService] Sending with disable_thinking=true');
+      }
     }
 
     // Use fast model (Sonnet) if specified
