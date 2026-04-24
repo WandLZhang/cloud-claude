@@ -1,6 +1,9 @@
 #!/bin/bash
+set -euo pipefail
 
-# Deploy Cloud Function using gcloud
+# Deploy the chat Cloud Function. Self-locating: works from any cwd.
+
+cd "$(dirname "$0")/chat"
 
 PROJECT_ID="wz-cloud-claude"
 REGION="us-east4"
