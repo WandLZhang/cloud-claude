@@ -5,10 +5,11 @@ import {
   signInWithPopup, 
   signOut
 } from 'firebase/auth';
-import { 
-  getFirestore, 
-  collection, 
-  doc, 
+import {
+  getFirestore,
+  collection,
+  collectionGroup,
+  doc,
   setDoc,
   getDocs,
   addDoc,
@@ -18,8 +19,9 @@ import {
   where,
   orderBy,
   limit,
+  startAfter,
   onSnapshot,
-  serverTimestamp 
+  serverTimestamp
 } from 'firebase/firestore';
 import { 
   getStorage, 
@@ -109,9 +111,12 @@ export const getUserChats = async (userId) => {
 
 export const addMessage = async (userId, chatId, message) => {
   try {
-    // Add message to subcollection
+    // Add message to subcollection. userId is denormalized onto every message
+    // so the search path can use a single collectionGroup('messages') query
+    // scoped by where('userId','==',uid) instead of fanning out per chat.
     const docRef = await addDoc(collection(db, 'chats', userId, 'conversations', chatId, 'messages'), {
       ...message,
+      userId,
       timestamp: serverTimestamp()
     });
     
@@ -307,40 +312,81 @@ export const subscribeToUserPrompts = (userId, callback) => {
 };
 
 // Search functions
-export const searchMessages = async (userId, searchQuery) => {
-  try {
-    // Use the Cloud Function for search
-    const searchUrl = 'https://us-central1-wz-cloud-claude.cloudfunctions.net/search-messages';
-    
-    const response = await fetch(searchUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        userId,
-        query: searchQuery,
-        limit: 50
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Search failed: ${response.statusText}`);
+//
+// Returns the full set of messages owned by `userId`, newest first, with
+// chatTitle joined in. Pages through `messages` collectionGroup until exhausted
+// (no truncation — explicit user requirement: "search all messages"). Caller
+// (SearchResults.js) caches the result for the session and filters in-memory.
+const MESSAGE_PAGE_SIZE = 1000;
+
+export const fetchAllUserMessages = async (userId) => {
+  if (!userId) return [];
+
+  const conversationsPromise = getDocs(
+    collection(db, 'chats', userId, 'conversations')
+  );
+
+  const messages = [];
+  let cursor = null;
+  let pagesFetched = 0;
+
+  while (true) {
+    const constraints = [
+      where('userId', '==', userId),
+      orderBy('timestamp', 'desc'),
+      limit(MESSAGE_PAGE_SIZE)
+    ];
+    if (cursor) constraints.push(startAfter(cursor));
+
+    const pageQuery = query(collectionGroup(db, 'messages'), ...constraints);
+    const snapshot = await getDocs(pageQuery);
+    pagesFetched += 1;
+
+    console.log(
+      `[searchMessages] fetched page ${pagesFetched}: ${snapshot.docs.length} messages ` +
+      `(running total ${messages.length + snapshot.docs.length})`
+    );
+
+    for (const docSnap of snapshot.docs) {
+      const data = docSnap.data();
+      messages.push({
+        chatId: docSnap.ref.parent.parent.id,
+        messageId: docSnap.id,
+        content: data.content || '',
+        role: data.role || 'user',
+        timestamp: data.timestamp?.toDate ? data.timestamp.toDate() : data.timestamp || null
+      });
     }
-    
-    const data = await response.json();
-    
-    // Convert timestamp strings back to Firestore timestamps
-    const results = data.results.map(result => ({
-      ...result,
-      timestamp: result.timestamp ? new Date(result.timestamp) : null
-    }));
-    
-    return results;
-  } catch (error) {
-    console.error('Error searching messages:', error);
-    return [];
+
+    if (snapshot.docs.length < MESSAGE_PAGE_SIZE) break;
+    cursor = snapshot.docs[snapshot.docs.length - 1];
   }
+
+  const conversationsSnapshot = await conversationsPromise;
+  const titleByChatId = new Map();
+  for (const chatDoc of conversationsSnapshot.docs) {
+    titleByChatId.set(chatDoc.id, chatDoc.data().title || 'Untitled Chat');
+  }
+  for (const m of messages) {
+    m.chatTitle = titleByChatId.get(m.chatId) || 'Untitled Chat';
+  }
+
+  console.log(
+    `[searchMessages] loaded ${messages.length} messages across ` +
+    `${conversationsSnapshot.size} chats in ${pagesFetched} page(s)`
+  );
+
+  return messages;
+};
+
+// Backwards-compatible wrapper: SearchResults.js used to pass a query string
+// here. The new path filters in-memory inside the component, but keep this
+// signature working in case anything else calls it.
+export const searchMessages = async (userId, searchQuery) => {
+  const all = await fetchAllUserMessages(userId);
+  if (!searchQuery || !searchQuery.trim()) return all;
+  const needle = searchQuery.toLowerCase();
+  return all.filter((m) => m.content && m.content.toLowerCase().includes(needle));
 };
 
 // Storage functions
