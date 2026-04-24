@@ -1,0 +1,15 @@
+.gcloudignore
+.git
+.gitignore
+
+# Local dev artifacts that should never end up in the Cloud Function bundle
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.so
+.Python
+.pytest_cache/
+.mypy_cache/
+.DS_Store

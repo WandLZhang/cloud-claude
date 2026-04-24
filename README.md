@@ -52,12 +52,11 @@ Update the values in `.env`:
 ### 4. Deploy the Cloud Function
 
 ```bash
-cd functions
-chmod +x deploy.sh
-./deploy.sh
+chmod +x functions/deploy.sh
+functions/deploy.sh
 ```
 
-This will deploy the function to `us-east4` region. Note the function URL and update your `.env` file.
+This will deploy the `chat` function to `us-east4`. The script is self-locating, so it works from any cwd. Note the function URL it prints and update your `.env`.
 
 ### 5. Install dependencies and run
 
@@ -74,8 +73,7 @@ The app will open at http://localhost:3000
 ### Deploy Cloud Function
 
 ```bash
-cd functions
-./deploy.sh
+functions/deploy.sh
 ```
 
 ### Deploy to Firebase Hosting
@@ -99,10 +97,17 @@ cloud-claude-chat/
 │   ├── hooks/          # Custom React hooks
 │   ├── services/       # API and Firebase services
 │   └── material.css    # Material Design styles
-├── functions/          # Cloud Functions (Python)
-│   ├── main.py        # Claude API integration
-│   └── deploy.sh      # Deployment script
-└── firebase.json      # Firebase configuration
+├── functions/             # Python (Cloud Functions + ops scripts)
+│   ├── chat/             # Deployed Cloud Function: Claude API integration
+│   │   ├── main.py
+│   │   ├── requirements.txt
+│   │   └── .gcloudignore
+│   ├── scripts/          # One-off ops scripts (run locally, not deployed)
+│   │   └── backfill_message_userid.py
+│   └── deploy.sh         # Deploys functions/chat/ to us-east4
+├── firestore.rules        # Firestore security rules
+├── firestore.indexes.json # Firestore composite indexes
+└── firebase.json          # Firebase configuration
 ```
 
 ## Configuration
@@ -150,7 +155,7 @@ npm run build
 ### Testing the Cloud Function locally
 
 ```bash
-cd functions
+cd functions/chat
 functions-framework --target=chat --debug
 ```
 
