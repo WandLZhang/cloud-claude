@@ -403,35 +403,76 @@ def chat(request):
                     print(f"Usage: {json.dumps(usage)} stop_reason={stop_reason} text_len={len(full_response)} thinking_len={len(thinking_content)}")
                     done_payload['stop_reason'] = stop_reason
 
-                    # Fallback: model produced thinking but no text (or hit max_tokens
-                    # mid-thinking). Retry once with thinking disabled so the user
-                    # sees a real response instead of an empty bubble.
-                    if not full_response.strip() and not disable_thinking:
-                        print("Empty text after thinking — retrying without thinking")
-                        retry_options = dict(message_options)
-                        retry_options.pop('thinking', None)
-                        retry_options.pop('output_config', None)
+                    # Helper: run a non-thinking attempt synchronously, return (text, stop_reason).
+                    # Doesn't yield chunks — callers replace done_payload.content with the result.
+                    def run_attempt(opts, label):
+                        text = ''
+                        with client.messages.stream(**opts) as s:
+                            for ev in s:
+                                if (getattr(ev, 'type', None) == 'content_block_delta'
+                                        and hasattr(ev, 'delta')
+                                        and hasattr(ev.delta, 'text')):
+                                    text += ev.delta.text
+                            msg = s.current_message_snapshot
+                            sr = getattr(msg, 'stop_reason', None)
+                            u = {'input_tokens': msg.usage.input_tokens,
+                                 'output_tokens': msg.usage.output_tokens}
+                            print(f"{label} usage: {json.dumps(u)} stop_reason={sr} text_len={len(text)}")
+                            return text, sr, u
+
+                    # Refusal-aware retry chain. Per Anthropic's streaming-refusals doc,
+                    # `stop_reason=refusal` means the safety classifier intervened — partial
+                    # text may have been emitted but the turn is bad and must be replaced.
+                    needs_retry = (stop_reason == 'refusal') or (not full_response.strip() and not disable_thinking)
+                    if needs_retry:
+                        # Attempt 2: same context, thinking off
+                        retry_opts = dict(message_options)
+                        retry_opts.pop('thinking', None)
+                        retry_opts.pop('output_config', None)
                         try:
-                            with client.messages.stream(**retry_options) as retry_stream:
-                                for event in retry_stream:
-                                    if (getattr(event, 'type', None) == 'content_block_delta'
-                                            and hasattr(event, 'delta')
-                                            and hasattr(event.delta, 'text')):
-                                        text = event.delta.text
-                                        full_response += text
-                                        yield f"data: {json.dumps({'type': 'chunk', 'text': text})}\n\n"
-                                retry_msg = retry_stream.current_message_snapshot
-                                retry_usage = {
-                                    'input_tokens': retry_msg.usage.input_tokens,
-                                    'output_tokens': retry_msg.usage.output_tokens,
-                                }
-                                retry_stop = getattr(retry_msg, 'stop_reason', None)
-                                print(f"Retry usage: {json.dumps(retry_usage)} stop_reason={retry_stop} text_len={len(full_response)}")
-                                done_payload['content'] = full_response
-                                done_payload['retry_used'] = True
-                                done_payload['retry_usage'] = retry_usage
+                            print(f"Refusal/empty-text detected — retry 1 (thinking off, full context)")
+                            text2, stop2, usage2 = run_attempt(retry_opts, "Retry 1")
+                            done_payload['retry_used'] = True
+                            done_payload['retry_usage'] = usage2
+                            done_payload['retry_stop_reason'] = stop2
+
+                            if stop2 == 'refusal':
+                                # Attempt 3: strip history, keep only initial setup turn(s)
+                                # + current user turn. Per the doc, removing the refused
+                                # turns from context is required to break the refusal loop.
+                                minimal_msgs = []
+                                if all_messages:
+                                    # Keep msg 0 (system-prompt-equivalent setup) if it's a user text turn
+                                    if all_messages[0].get('role') == 'user':
+                                        minimal_msgs.append(all_messages[0])
+                                    # Always include current turn (last message, the new user image)
+                                    if len(all_messages) > 1:
+                                        minimal_msgs.append(all_messages[-1])
+                                minimal_opts = dict(retry_opts)
+                                minimal_opts['messages'] = minimal_msgs
+                                print(f"Retry 1 also refused — retry 2 (thinking off, minimal context: {len(minimal_msgs)} msgs)")
+                                text3, stop3, usage3 = run_attempt(minimal_opts, "Retry 2")
+                                done_payload['retry2_usage'] = usage3
+                                done_payload['retry2_stop_reason'] = stop3
+
+                                if stop3 == 'refusal':
+                                    # Give up gracefully with a user-facing message rather
+                                    # than saving an empty bubble to Firestore.
+                                    full_response = ("I wasn't able to process this image. "
+                                                     "It may have triggered a content filter. "
+                                                     "Try uploading a different photo, or start a new chat.")
+                                    done_payload['gave_up'] = True
+                                else:
+                                    full_response = text3
+                            else:
+                                full_response = text2
+
+                            done_payload['content'] = full_response
                         except Exception as retry_err:
-                            print(f"Retry failed: {retry_err}")
+                            print(f"Retry chain failed: {retry_err}")
+                            if not full_response.strip():
+                                full_response = ("I wasn't able to get a response. Please try again.")
+                                done_payload['content'] = full_response
 
                     yield f"data: {json.dumps(done_payload)}\n\n"
 
