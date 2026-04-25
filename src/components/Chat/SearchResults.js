@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import * as OpenCC from 'opencc-js/t2cn';
 import { fetchAllUserMessages } from '../../services/firebase';
 import LoadingSpinner from '../Common/LoadingSpinner';
 import './SearchResults.css';
@@ -8,6 +9,14 @@ import './SearchResults.css';
 // in-memory — no network call per query.
 const datasetCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+// Traditional → Simplified converter. We canonicalize both the dataset and the
+// query into simplified form before substring matching so a user typing 小红帽
+// finds chats/messages written as 小紅帽 (and vice versa). Conversion is
+// character-level 1:1 for CJK and a no-op for everything else, which lets us
+// reuse normalized indices to highlight the original (un-normalized) text.
+const t2s = OpenCC.Converter({ from: 'hk', to: 'cn' });
+const normalizeForMatch = (s) => (s ? t2s(s.toLowerCase()) : '');
 
 function SearchResults({ searchQuery, userId, onSelectResult }) {
   const [results, setResults] = useState([]);
@@ -27,15 +36,36 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
       }
       if (!userId) return;
 
-      const needle = trimmed.toLowerCase();
+      const needleNorm = normalizeForMatch(trimmed);
 
       const filterAndSet = (dataset) => {
         if (cancelled) return;
-        const filtered = dataset
-          .filter((m) => m.content && m.content.toLowerCase().includes(needle))
-          .slice(0, 50);
+
+        // Two passes: title-only matches (deduped per chat, one entry each) come
+        // first; then per-message content matches. Dataset is newest-first
+        // (firebase.js orders by timestamp desc), so the first message we see
+        // for a given chatId is its most recent — perfect representative for a
+        // title-only hit. Matching uses the pre-normalized fields so simplified
+        // and traditional Chinese cross-match.
+        const titleMatchesByChat = new Map();
+        const contentMatches = [];
+        for (const m of dataset) {
+          const contentHit = m.contentNorm && m.contentNorm.includes(needleNorm);
+          if (contentHit) {
+            contentMatches.push({ ...m, matchType: 'content' });
+            continue;
+          }
+          const titleHit = m.chatTitleNorm && m.chatTitleNorm.includes(needleNorm);
+          if (titleHit && !titleMatchesByChat.has(m.chatId)) {
+            titleMatchesByChat.set(m.chatId, { ...m, matchType: 'title' });
+          }
+        }
+
+        const titleMatches = Array.from(titleMatchesByChat.values());
+        const filtered = [...titleMatches, ...contentMatches].slice(0, 50);
         console.log(
-          `[SearchResults] query="${trimmed}" matched ${filtered.length} of ${dataset.length} messages`
+          `[SearchResults] query="${trimmed}" matched ${titleMatches.length} chat title(s) ` +
+          `+ ${contentMatches.length} message(s) of ${dataset.length} total`
         );
         setResults(filtered);
       };
@@ -59,6 +89,15 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
         }
         const messages = await inFlightRef.current;
         if (cancelled) return;
+
+        // Pre-compute normalized (lowercase + traditional→simplified) variants
+        // once per cache fill. CJK normalization is character-level 1:1 so
+        // indices in *Norm align with the original text — used by the
+        // highlighter below to mark the right characters in the original.
+        for (const m of messages) {
+          m.contentNorm = normalizeForMatch(m.content);
+          m.chatTitleNorm = normalizeForMatch(m.chatTitle);
+        }
 
         datasetCache.set(userId, { messages, fetchedAt: Date.now() });
         filterAndSet(messages);
@@ -99,14 +138,32 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
   };
 
   const highlightText = (text, query) => {
-    if (!query.trim()) return text;
+    if (!text || !query.trim()) return text;
 
-    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    const parts = text.split(regex);
+    // Match on the normalized form so 小红帽/小紅帽 highlight correctly, but
+    // render slices of the original `text` so the user sees their data verbatim.
+    // Indices align because CJK normalization is character-level 1:1.
+    const textNorm = normalizeForMatch(text);
+    const queryNorm = normalizeForMatch(query);
+    if (!queryNorm) return text;
 
-    return parts.map((part, index) =>
-      regex.test(part) ? <mark key={index}>{part}</mark> : part
-    );
+    const parts = [];
+    let cursor = 0;
+    let searchFrom = 0;
+    while (true) {
+      const found = textNorm.indexOf(queryNorm, searchFrom);
+      if (found === -1) {
+        parts.push(text.slice(cursor));
+        break;
+      }
+      if (found > cursor) parts.push(text.slice(cursor, found));
+      parts.push(
+        <mark key={found}>{text.slice(found, found + queryNorm.length)}</mark>
+      );
+      cursor = found + queryNorm.length;
+      searchFrom = cursor;
+    }
+    return parts;
   };
 
   if (loading) {
@@ -143,7 +200,7 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
               onClick={() => onSelectResult(result)}
             >
               <div className="result-chat-title">
-                {result.chatTitle || 'Untitled Chat'}
+                {highlightText(result.chatTitle || 'Untitled Chat', searchQuery)}
               </div>
               <div className="result-message-preview">
                 {highlightText(result.content, searchQuery)}

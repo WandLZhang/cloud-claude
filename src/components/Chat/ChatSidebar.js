@@ -154,7 +154,7 @@ function ChatSidebar({
           <div className="search-input-wrapper">
             <input
               type="text"
-              placeholder="Search messages..."
+              placeholder="Search chats and messages..."
               value={searchQuery}
               onChange={handleSearchChange}
               className="search-input"
