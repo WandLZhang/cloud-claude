@@ -257,14 +257,20 @@ def chat(request):
             'model': model,
         }
 
-        # Add thinking mode unless disabled
+        # Add thinking mode unless disabled.
+        # Opus 4.7 only accepts type='adaptive' (not 'enabled' with budget_tokens).
+        # `display='summarized'` is required to actually capture thinking text —
+        # default on Opus 4.7 is 'omitted', which silently strips it.
+        # `output_config.effort='max'` is the real "use as much as needed" knob.
         if disable_thinking:
             print("Thinking mode DISABLED for this request")
         else:
-            print(f"Thinking mode ENABLED (adaptive), model={model}")
+            print(f"Thinking mode ENABLED (adaptive, effort=max, display=summarized), model={model}")
             message_options['thinking'] = {
-                'type': 'adaptive'
+                'type': 'adaptive',
+                'display': 'summarized',
             }
+            message_options['output_config'] = {'effort': 'max'}
 
         # Add web search tool if enabled
         if enable_web_search:
@@ -318,7 +324,11 @@ def chat(request):
 
                         elif event.type == 'content_block_delta':
                             if hasattr(event, 'delta'):
-                                if hasattr(event.delta, 'text'):
+                                # ThinkingDelta: attribute is .thinking, not .text.
+                                # Opus 4.7 emits these when display='summarized'.
+                                if hasattr(event.delta, 'thinking'):
+                                    thinking_content += event.delta.thinking
+                                elif hasattr(event.delta, 'text'):
                                     text = event.delta.text
                                     if is_thinking:
                                         thinking_content += text
@@ -389,7 +399,40 @@ def chat(request):
                         done_payload['web_search_queries'] = web_search_queries
                         print(f"Search queries used: {web_search_queries}")
 
-                    print(f"Usage: {json.dumps(usage)}")
+                    stop_reason = getattr(final_message, 'stop_reason', None)
+                    print(f"Usage: {json.dumps(usage)} stop_reason={stop_reason} text_len={len(full_response)} thinking_len={len(thinking_content)}")
+                    done_payload['stop_reason'] = stop_reason
+
+                    # Fallback: model produced thinking but no text (or hit max_tokens
+                    # mid-thinking). Retry once with thinking disabled so the user
+                    # sees a real response instead of an empty bubble.
+                    if not full_response.strip() and not disable_thinking:
+                        print("Empty text after thinking — retrying without thinking")
+                        retry_options = dict(message_options)
+                        retry_options.pop('thinking', None)
+                        retry_options.pop('output_config', None)
+                        try:
+                            with client.messages.stream(**retry_options) as retry_stream:
+                                for event in retry_stream:
+                                    if (getattr(event, 'type', None) == 'content_block_delta'
+                                            and hasattr(event, 'delta')
+                                            and hasattr(event.delta, 'text')):
+                                        text = event.delta.text
+                                        full_response += text
+                                        yield f"data: {json.dumps({'type': 'chunk', 'text': text})}\n\n"
+                                retry_msg = retry_stream.current_message_snapshot
+                                retry_usage = {
+                                    'input_tokens': retry_msg.usage.input_tokens,
+                                    'output_tokens': retry_msg.usage.output_tokens,
+                                }
+                                retry_stop = getattr(retry_msg, 'stop_reason', None)
+                                print(f"Retry usage: {json.dumps(retry_usage)} stop_reason={retry_stop} text_len={len(full_response)}")
+                                done_payload['content'] = full_response
+                                done_payload['retry_used'] = True
+                                done_payload['retry_usage'] = retry_usage
+                        except Exception as retry_err:
+                            print(f"Retry failed: {retry_err}")
+
                     yield f"data: {json.dumps(done_payload)}\n\n"
 
             except Exception as e:
