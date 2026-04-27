@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
-import { 
-  getUserChats, 
+import {
   createChat,
-  subscribeToUserChats 
+  subscribeToUserChats
 } from '../services/firebase';
 
 export function useFirestore(userId) {
