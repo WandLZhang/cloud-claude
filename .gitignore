@@ -50,3 +50,4 @@ Thumbs.db
 public/fonts/*.ttf
 public/fonts/*.otf
 public/fonts/*.woff2
+.claude/settings.local.json
