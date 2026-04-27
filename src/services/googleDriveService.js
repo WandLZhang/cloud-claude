@@ -1,5 +1,3 @@
-import { auth } from './firebase';
-
 // Google OAuth2 configuration
 const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
 const GOOGLE_API_KEY = process.env.REACT_APP_GOOGLE_API_KEY;
