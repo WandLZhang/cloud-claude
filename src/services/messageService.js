@@ -1,5 +1,4 @@
 const CLOUD_FUNCTION_URL = process.env.REACT_APP_CLOUD_FUNCTION_URL;
-const WRAP_CHINESE_URL = process.env.REACT_APP_WRAP_CHINESE_URL;
 
 const DEFAULT_SYSTEM_PROMPT = `You are Claude, a helpful AI assistant. Engage in natural conversation,
 be helpful, harmless, and honest. Provide thoughtful and detailed responses when appropriate.`;
@@ -64,7 +63,7 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
     // Use custom system prompt if provided, otherwise use default.
     // Append the Chinese formatting suffix only when the prompt is
     // Chinese-related (mentions Mandarin/Cantonese/pinyin/jyutping).
-    // For all other cases, the wrap_chinese safety net catches any
+    // For all other cases, the wrap_content post-processor catches any
     // Chinese responses that slip through without wrappers.
     const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
     const promptLower = (basePrompt + ' ' + (newContent || '')).toLowerCase();
@@ -173,9 +172,8 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
     if (finalData) {
       let content = finalData.content;
 
-      // Safety net: if response has CJK chars but zero wrappers, Claude
-      // forgot the format. Post-fix via the wrap_chinese Cloud Function
-      // (same prompt used by the backfill). Cheaper than a full retry.
+      // Always normalize Chinese+phonetic responses through wrap_content
+      // mode on the chat Cloud Function. Ensures consistent rendering.
       if (content && CLOUD_FUNCTION_URL) {
         const hasCJK = /[一-鿿]/.test(content);
         const hasWrapper = content.includes('class="zh-yue"') || content.includes('<ruby>') || content.includes('<rt>');
@@ -192,11 +190,11 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
               const wrapData = await wrapResp.json();
               if (wrapData.wrapped) {
                 content = wrapData.wrapped;
-                console.log('[messageService] wrap_chinese safety net applied');
+                console.log('[messageService] wrap_content normalization applied');
               }
             }
           } catch (wrapErr) {
-            console.error('[messageService] wrap_chinese safety net failed (non-fatal):', wrapErr);
+            console.error('[messageService] wrap_content normalization failed (non-fatal):', wrapErr);
           }
         }
       }

@@ -6,7 +6,7 @@ need to be backfilled or they are invisible to search.
 
 Usage:
     source venv/bin/activate   # or .venv/bin/activate
-    python functions/scripts/backfill_message_userid.py --project wz-cloud-claude
+    python test_scripts/backfill_message_userid.py --project wz-cloud-claude
 
 Optional flags:
     --dry-run      Walk the tree and report counts; do not write anything.

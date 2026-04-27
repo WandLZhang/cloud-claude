@@ -6,12 +6,12 @@ Idempotent: each processed message gets `contentOriginal` set to the raw
 content. Re-runs skip messages that already have `contentOriginal`.
 
 Driven by Claude (Opus 4.7 by default) on Anthropic Vertex AI — same
-channel as the chat function. Uses the SHARED system prompt from
-`functions/wrap_chinese/prompt.py`.
+channel as the chat function. Uses the shared prompt from
+`functions/chat/wrap_prompt.py`.
 
 Usage:
     source .venv/bin/activate
-    python functions/scripts/wrap_chinese_messages.py --project wz-cloud-claude
+    python test_scripts/wrap_chinese_messages.py --project wz-cloud-claude
 
 Common flags:
     --dry-run             Walk + Claude-call but do NOT write Firestore.
@@ -33,50 +33,37 @@ import pathlib
 import sys
 import time
 
+import json
+import urllib.request
+
 import firebase_admin
 from firebase_admin import firestore
 
-from anthropic import AnthropicVertex
+PROJECT_ID = "wz-cloud-claude"
+CLOUD_FUNCTION_URL = "https://us-east4-wz-cloud-claude.cloudfunctions.net/chat"
 
-# Pull the SHARED prompt + model constants from the Cloud Function source so
-# backfill and live function never drift.
-_HERE = pathlib.Path(__file__).resolve()
-sys.path.insert(0, str(_HERE.parent.parent / "wrap_chinese"))
-from prompt import (  # noqa: E402  (sys.path manipulation is intentional)
-    SYSTEM_PROMPT,
-    MODEL_DEFAULT,
-    MODEL_FAST,
-    MAX_TOKENS,
-    PROJECT_ID,
-    LOCATION,
-)
-
-
-BATCH_SIZE = 500  # Firestore hard limit per WriteBatch
-CJK_RANGE = range(0x4E00, 0xA000)  # Basic CJK Unified Ideographs
+BATCH_SIZE = 500
+CJK_RANGE = range(0x4E00, 0xA000)
 
 
 def has_cjk(text: str) -> bool:
-    """Cheap charset gate. Not parsing — just 'is there at least one CJK char'."""
     for ch in text:
         if ord(ch) in CJK_RANGE:
             return True
     return False
 
 
-def wrap_one(client: AnthropicVertex, model: str, content: str) -> str:
-    """Single Claude call. Returns wrapped text. Raises on API error."""
-    response = client.messages.create(
-        model=model,
-        max_tokens=MAX_TOKENS,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": content}],
+def wrap_one(content: str, use_fast: bool = True) -> str:
+    """POST to the chat Cloud Function's wrap_content mode. Returns wrapped text."""
+    payload = json.dumps({"wrap_content": content, "use_fast_model": use_fast}).encode()
+    req = urllib.request.Request(
+        CLOUD_FUNCTION_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"},
     )
-    parts = []
-    for block in response.content:
-        if getattr(block, "type", None) == "text":
-            parts.append(block.text)
-    return "".join(parts)
+    with urllib.request.urlopen(req, timeout=120) as resp:
+        data = json.loads(resp.read())
+    return data.get("wrapped", content)
 
 
 def collect_targets(db, only_user, only_chat, force=False):
@@ -141,9 +128,6 @@ def backfill(args) -> int:
         print("Nothing to do.")
         return 0
 
-    client = AnthropicVertex(region=LOCATION, project_id=PROJECT_ID)
-    model = MODEL_FAST if args.fast else MODEL_DEFAULT
-
     started = time.time()
     wrapped_count = 0
     noop_count = 0
@@ -173,7 +157,7 @@ def backfill(args) -> int:
     def process(target):
         ref, content = target
         try:
-            wrapped = wrap_one(client, model, content)
+            wrapped = wrap_one(content, use_fast=args.fast)
             return ref, content, wrapped, None
         except Exception as e:
             return ref, content, None, e
