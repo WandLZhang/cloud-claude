@@ -18,6 +18,12 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 const t2s = OpenCC.Converter({ from: 'hk', to: 'cn' });
 const normalizeForMatch = (s) => (s ? t2s(s.toLowerCase()) : '');
 
+const stripHtml = (text) => {
+  if (!text || !text.includes('<')) return text || '';
+  const doc = new DOMParser().parseFromString(text, 'text/html');
+  return doc.body.textContent || '';
+};
+
 function SearchResults({ searchQuery, userId, onSelectResult }) {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -95,7 +101,8 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
         // indices in *Norm align with the original text — used by the
         // highlighter below to mark the right characters in the original.
         for (const m of messages) {
-          m.contentNorm = normalizeForMatch(m.content);
+          m.contentClean = stripHtml(m.content);
+          m.contentNorm = normalizeForMatch(m.contentClean);
           m.chatTitleNorm = normalizeForMatch(m.chatTitle);
         }
 
@@ -203,7 +210,7 @@ function SearchResults({ searchQuery, userId, onSelectResult }) {
                 {highlightText(result.chatTitle || 'Untitled Chat', searchQuery)}
               </div>
               <div className="result-message-preview">
-                {highlightText(result.content, searchQuery)}
+                {highlightText(result.contentClean || result.content, searchQuery)}
               </div>
               <div className="result-timestamp">
                 {formatTimestamp(result.timestamp)}

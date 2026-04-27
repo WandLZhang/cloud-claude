@@ -1,0 +1,3 @@
+functions-framework==3.*
+anthropic[vertex]>=0.75.0
+flask-cors==4.*

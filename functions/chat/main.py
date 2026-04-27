@@ -77,6 +77,27 @@ def chat(request):
     try:
         request_json = request.get_json(silent=True)
 
+        # --- wrap_content mode: convert Chinese text to ruby/span markup ---
+        if request_json and 'wrap_content' in request_json:
+            from wrap_prompt import SYSTEM_PROMPT as WRAP_PROMPT
+            content = request_json['wrap_content']
+            if not isinstance(content, str) or not content.strip():
+                return {'wrapped': content or ''}, 200
+            use_fast = bool(request_json.get('use_fast_model', True))
+            model = MODEL_FAST if use_fast else MODEL_DEFAULT
+            print(f"wrap_content mode: model={model} content_len={len(content)}")
+            resp = client.messages.create(
+                model=model,
+                max_tokens=MAX_TOKENS_SONNET,
+                system=WRAP_PROMPT,
+                messages=[{"role": "user", "content": content}],
+            )
+            wrapped = "".join(
+                b.text for b in resp.content if getattr(b, "type", None) == "text"
+            )
+            print(f"wrap_content done: wrapped_len={len(wrapped)} in={resp.usage.input_tokens} out={resp.usage.output_tokens}")
+            return {'wrapped': wrapped, 'model': model}, 200
+
         if not request_json or 'messages' not in request_json:
             return {'error': 'Messages are required'}, 400
 
