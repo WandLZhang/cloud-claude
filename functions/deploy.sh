@@ -4,9 +4,8 @@ set -euo pipefail
 # Deploy Cloud Functions. Self-locating: works from any cwd.
 #
 # Usage:
-#   ./deploy.sh             # deploys all functions
+#   ./deploy.sh             # deploys all functions (currently just chat)
 #   ./deploy.sh chat        # deploys only the chat function
-#   ./deploy.sh wrap_chinese
 #
 
 FUNCTIONS_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -50,7 +49,7 @@ deploy_function() {
 }
 
 if [ $# -eq 0 ]; then
-  TARGETS=(chat wrap_chinese)
+  TARGETS=(chat)
 else
   TARGETS=("$@")
 fi
@@ -62,6 +61,5 @@ done
 echo
 echo "All requested deployments complete."
 echo
-echo "URLs to wire into the frontend (.env):"
+echo "Frontend env var:"
 echo "  REACT_APP_CLOUD_FUNCTION_URL=https://$REGION-$PROJECT_ID.cloudfunctions.net/chat"
-echo "  REACT_APP_WRAP_CHINESE_URL=https://$REGION-$PROJECT_ID.cloudfunctions.net/wrap_chinese"
