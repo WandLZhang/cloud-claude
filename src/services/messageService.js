@@ -1,7 +1,32 @@
 const CLOUD_FUNCTION_URL = process.env.REACT_APP_CLOUD_FUNCTION_URL;
+const WRAP_CHINESE_URL = process.env.REACT_APP_WRAP_CHINESE_URL;
 
 const DEFAULT_SYSTEM_PROMPT = `You are Claude, a helpful AI assistant. Engage in natural conversation,
 be helpful, harmless, and honest. Provide thoughtful and detailed responses when appropriate.`;
+
+const CHINESE_FORMAT_SUFFIX = `
+
+When your response includes Chinese characters with phonetic transcription (jyutping or pinyin), format them with HTML wrappers so the UI can render phonetics above characters:
+
+CANTONESE (jyutping = ASCII letters + tone digit 1-6):
+- Wrap each Chinese-character line in <span class="zh-yue">…</span>
+- Keep the jyutping line OUTSIDE the span on the next line
+- Example:
+  <span class="zh-yue">從前，喺一個好遠嘅國度</span>
+  cung4 cin4, hai2 jat1 go3 hou2 jyun5 ge3 gwok3 dou6
+
+MANDARIN (pinyin = diacritics like nǐ hǎo):
+- Convert to inline <ruby> tags, one <rt> per character. DELETE the standalone pinyin line.
+- Example: <ruby>你<rt>nǐ</rt>好<rt>hǎo</rt></ruby>
+- For interleaved format (鸟niǎo儿ér), also convert: <ruby>鸟<rt>niǎo</rt>儿<rt>ér</rt></ruby>
+
+BOTH in one response:
+  **Mandarin:** <ruby>你<rt>nǐ</rt>好<rt>hǎo</rt></ruby>
+  **Cantonese:**
+  <span class="zh-yue">你好</span>
+  nei5 hou2
+
+If no Chinese phonetics in the response, ignore these rules entirely.`;
 
 export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}) {
   try {
@@ -36,8 +61,15 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
       use_cache: true
     };
 
-    // Use custom system prompt if provided, otherwise use default
-    payload.system_prompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    // Use custom system prompt if provided, otherwise use default.
+    // Append the Chinese formatting suffix only when the prompt is
+    // Chinese-related (mentions Mandarin/Cantonese/pinyin/jyutping).
+    // For all other cases, the wrap_chinese safety net catches any
+    // Chinese responses that slip through without wrappers.
+    const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+    const promptLower = (basePrompt + ' ' + (newContent || '')).toLowerCase();
+    const isChinese = /mandarin|cantonese|pinyin|jyutping|粵|普通話|广东话|翻译|翻譯/.test(promptLower);
+    payload.system_prompt = isChinese ? basePrompt + CHINESE_FORMAT_SUFFIX : basePrompt;
 
     // Add image if provided
     if (image) {
@@ -139,9 +171,39 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
 
     // Return final data with complete response
     if (finalData) {
+      let content = finalData.content;
+
+      // Safety net: if response has CJK chars but zero wrappers, Claude
+      // forgot the format. Post-fix via the wrap_chinese Cloud Function
+      // (same prompt used by the backfill). Cheaper than a full retry.
+      if (content && CLOUD_FUNCTION_URL) {
+        const hasCJK = /[一-鿿]/.test(content);
+        const hasWrapper = content.includes('class="zh-yue"') || content.includes('<ruby>') || content.includes('<rt>');
+        const hasPhonetic = /[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]/.test(content) || /\b[a-z]{1,6}[1-6]\b/.test(content);
+        if (hasCJK && !hasWrapper && hasPhonetic) {
+          try {
+            console.log('[messageService] CJK without wrappers detected — calling wrap_content safety net');
+            const wrapResp = await fetch(CLOUD_FUNCTION_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ wrap_content: content, use_fast_model: true })
+            });
+            if (wrapResp.ok) {
+              const wrapData = await wrapResp.json();
+              if (wrapData.wrapped) {
+                content = wrapData.wrapped;
+                console.log('[messageService] wrap_chinese safety net applied');
+              }
+            }
+          } catch (wrapErr) {
+            console.error('[messageService] wrap_chinese safety net failed (non-fatal):', wrapErr);
+          }
+        }
+      }
+
       yield {
         type: 'done',
-        content: finalData.content,
+        content,
         thinking: finalData.thinking,
         usage: finalData.usage,
         cached: finalData.cached,

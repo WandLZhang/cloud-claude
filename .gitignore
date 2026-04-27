@@ -45,3 +45,8 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# Visual Fonts binary (re-extracted from C:\Projects\cantonese-visual-fonts/, OFL-licensed)
+public/fonts/*.ttf
+public/fonts/*.otf
+public/fonts/*.woff2

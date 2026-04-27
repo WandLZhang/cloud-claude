@@ -40,9 +40,16 @@ function ChatSidebar({
     }
   };
 
+  const stripHtml = (text) => {
+    if (!text || !text.includes('<')) return text || '';
+    const doc = new DOMParser().parseFromString(text, 'text/html');
+    return doc.body.textContent || '';
+  };
+
   const truncateText = (text, maxLength = 50) => {
     if (!text) return 'New Chat';
-    return text.length > maxLength ? text.substring(0, maxLength) + '...' : text;
+    const clean = stripHtml(text);
+    return clean.length > maxLength ? clean.substring(0, maxLength) + '...' : clean;
   };
 
   const handleEditClick = (e, chat) => {

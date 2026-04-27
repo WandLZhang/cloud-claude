@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ExportMenu from './ExportMenu';
@@ -129,8 +130,9 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
           )
         ) : (
           <div className="message-content">
-            <ReactMarkdown 
+            <ReactMarkdown
               remarkPlugins={[remarkGfm]}
+              rehypePlugins={[rehypeRaw]}
               components={components}
             >
               {message.content || ''}
