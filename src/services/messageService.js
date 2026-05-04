@@ -64,7 +64,8 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
     // For all other cases, the wrap_content post-processor catches any
     // Chinese responses that slip through without wrappers.
     const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-    const promptLower = (basePrompt + ' ' + (newContent || '')).toLowerCase();
+    const firstMsgContent = previousMessages.length > 0 ? (previousMessages[0].content || '') : '';
+    const promptLower = (basePrompt + ' ' + firstMsgContent + ' ' + (newContent || '')).toLowerCase();
     const isChinese = /mandarin|cantonese|pinyin|jyutping|粵|普通話|广东话|翻译|翻譯/.test(promptLower);
     payload.system_prompt = isChinese ? basePrompt + CHINESE_FORMAT_SUFFIX : basePrompt;
 
@@ -177,7 +178,7 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
       // cheap — no LLM call.
       if (content) {
         const hasWrapper = content.includes('class="zh-yue"') || content.includes('<ruby>') || content.includes('<rt>');
-        const hasHKDistinct = /[嘅喺哋佢啲咗嚟嘢㗎咩嗰噉諗唔係冇俾]/.test(content);
+        const hasHKDistinct = /[嘅喺哋佢啲咗嚟嘢㗎咩嗰噉諗唔係冇俾喎囉噃吖嬲靚攰嘥嘞瞓嚿掹揼]/.test(content);
         if (!hasWrapper && hasHKDistinct) {
           console.log('[messageService] Bare Cantonese detected — applying programmatic span wrap');
           content = content.split(/\n\n+/).map(para => {

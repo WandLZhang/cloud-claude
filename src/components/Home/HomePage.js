@@ -50,7 +50,10 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
             : content.trim(),
           createdAt: new Date(),
           lastMessage: content,
-          lastMessageAt: new Date()
+          lastMessageAt: new Date(),
+          ...(chatConfig.enableWebSearch && { enableWebSearch: true }),
+          ...(chatConfig.disableThinking && { disableThinking: true }),
+          ...(chatConfig.useFastModel && { useFastModel: true }),
         };
 
         // Navigate immediately
