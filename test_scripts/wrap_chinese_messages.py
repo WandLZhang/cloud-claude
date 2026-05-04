@@ -1,13 +1,19 @@
 """Backfill: wrap Chinese characters in past assistant messages with the
-HTML markup needed for the Visual Fonts (canto.hk) jyutping rendering and
-inline <ruby> tags for Mandarin pinyin.
+HTML markup needed for the Visual Fonts (canto.hk) rendering and inline
+<ruby> tags for Mandarin pinyin.
+
+The WRAP_PROMPT (defined inline in functions/chat/main.py) now strips
+jyutping romanization lines and parentheticals from Cantonese content,
+since Visual Fonts renders jyutping above each character automatically.
+Re-running with --force will re-process from contentOriginal and produce
+jyutping-free output.
 
 Idempotent: each processed message gets `contentOriginal` set to the raw
-content. Re-runs skip messages that already have `contentOriginal`.
+content. Re-runs skip messages that already have `contentOriginal` (use
+--force to re-process from contentOriginal instead).
 
 Driven by Claude (Opus 4.7 by default) on Anthropic Vertex AI — same
-channel as the chat function. Uses the shared prompt from
-`functions/chat/wrap_prompt.py`.
+channel as the chat function, which hosts the WRAP_PROMPT.
 
 Usage:
     source .venv/bin/activate
@@ -23,8 +29,11 @@ Common flags:
     --workers N           Parallel Claude calls (default 8).
     --fast                Use Sonnet 4.6 instead of Opus 4.7 (cheaper, faster,
                           slightly less accurate).
+    --force               Re-process from contentOriginal even if already
+                          wrapped. Use after prompt updates to re-wrap.
 
-Re-running is safe: docs that already have `contentOriginal` are skipped.
+Re-running is safe: docs that already have `contentOriginal` are skipped
+unless --force is used.
 """
 
 import argparse

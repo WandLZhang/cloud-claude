@@ -1,19 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-function ChatInput({ onSendMessage, disabled, placeholder = "Type your message...", value = '' }) {
+function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Type your message...", value = '', defaultWebSearch = false }) {
   const [message, setMessage] = useState(value);
   const [selectedImage, setSelectedImage] = useState(null);
   const [selectedDocument, setSelectedDocument] = useState(null);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(defaultWebSearch);
+  const [batchMode, setBatchMode] = useState(false);
+  const [batchQueue, setBatchQueue] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
   const textareaRef = useRef(null);
   const fileInputRef = useRef(null);
   const cameraInputRef = useRef(null);
 
   useEffect(() => {
-    // Update message when value prop changes
     setMessage(value);
   }, [value]);
+
+  useEffect(() => {
+    setWebSearchEnabled(defaultWebSearch);
+  }, [defaultWebSearch]);
 
   useEffect(() => {
     // Auto-resize textarea
@@ -46,8 +51,33 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
       const extraOptions = {};
       if (documentToSend) extraOptions.document = documentToSend;
       if (webSearch) extraOptions.enableWebSearch = true;
-      onSendMessage(messageToSend, imageToSend, extraOptions);
+
+      if (batchMode) {
+        setBatchQueue(prev => [...prev, {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          content: messageToSend,
+          image: imageToSend,
+          extraOptions,
+        }]);
+      } else {
+        onSendMessage(messageToSend, imageToSend, extraOptions);
+      }
     }
+  };
+
+  const handleBatchToggle = () => {
+    if (batchMode && batchQueue.length > 0) {
+      // Releasing a non-empty queue
+      if (onBatchRelease) {
+        onBatchRelease(batchQueue);
+      }
+      setBatchQueue([]);
+    }
+    setBatchMode(!batchMode);
+  };
+
+  const removeFromQueue = (id) => {
+    setBatchQueue(prev => prev.filter(item => item.id !== id));
   };
 
   const isMobile = () => {
@@ -335,6 +365,129 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
             </button>
           </div>
         )}
+
+        {batchMode && batchQueue.length === 0 && (
+          <div style={{
+            marginBottom: 'var(--unit-2)',
+            padding: 'var(--unit-2) var(--unit-3)',
+            borderRadius: 'var(--unit-2)',
+            backgroundColor: 'var(--primary-container)',
+            color: 'var(--on-primary-container)',
+            fontSize: '13px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--unit-2)'
+          }}>
+            <span className="icon" style={{ fontSize: '18px' }}>playlist_add</span>
+            <span>Batch mode — messages queue here. Tap the batch button again to release them all.</span>
+          </div>
+        )}
+
+        {batchQueue.length > 0 && (
+          <div style={{
+            marginBottom: 'var(--unit-1)',
+            padding: 'var(--unit-1) var(--unit-2)',
+            borderRadius: 'var(--unit-2)',
+            backgroundColor: 'var(--surface-container-low)',
+            border: '1px solid var(--outline-variant)',
+            maxHeight: '100px',
+            overflowY: 'auto',
+          }}>
+            <div style={{
+              fontSize: '11px',
+              color: 'var(--on-surface-variant)',
+              marginBottom: 'var(--unit-1)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between'
+            }}>
+              <span>{batchQueue.length} queued</span>
+              <span style={{ fontStyle: 'italic' }}>Tap batch to release</span>
+            </div>
+            <div style={{
+              display: 'flex',
+              gap: 'var(--unit-1)',
+              overflowX: 'auto',
+              paddingBottom: '2px'
+            }}>
+              {batchQueue.map((item, idx) => (
+                <div key={item.id} style={{
+                  position: 'relative',
+                  flexShrink: 0,
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: 'var(--unit-2)',
+                  border: '1px solid var(--outline-variant)',
+                  backgroundColor: 'var(--surface)',
+                  overflow: 'hidden',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: 'var(--unit-1)'
+                }}>
+                  {item.image ? (
+                    <img
+                      src={item.image.url}
+                      alt={`Queue ${idx + 1}`}
+                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  ) : item.extraOptions?.document ? (
+                    <>
+                      <span className="icon" style={{ fontSize: '22px', color: 'var(--primary)' }}>description</span>
+                      <span style={{ fontSize: '9px', color: 'var(--on-surface-variant)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '50px' }}>
+                        {item.extraOptions.document.name}
+                      </span>
+                    </>
+                  ) : (
+                    <span style={{
+                      fontSize: '9px',
+                      color: 'var(--on-surface)',
+                      textAlign: 'center',
+                      overflow: 'hidden',
+                      display: '-webkit-box',
+                      WebkitLineClamp: 4,
+                      WebkitBoxOrient: 'vertical',
+                      lineHeight: 1.2
+                    }}>
+                      {item.content || '(empty)'}
+                    </span>
+                  )}
+                  <div style={{
+                    position: 'absolute',
+                    top: '2px',
+                    left: '2px',
+                    backgroundColor: 'var(--scrim)',
+                    color: 'var(--inverse-on-surface)',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    padding: '1px 4px',
+                    borderRadius: '4px',
+                    lineHeight: 1
+                  }}>{idx + 1}</div>
+                  <button
+                    type="button"
+                    onClick={() => removeFromQueue(item.id)}
+                    className="icon-button"
+                    style={{
+                      position: 'absolute',
+                      top: '-6px',
+                      right: '-6px',
+                      width: '20px',
+                      height: '20px',
+                      padding: 0,
+                      backgroundColor: 'var(--surface)',
+                      border: '1px solid var(--outline-variant)'
+                    }}
+                    aria-label={`Remove queue item ${idx + 1}`}
+                  >
+                    <span className="icon" style={{ fontSize: '14px' }}>close</span>
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
         
         <div 
           className="flex gap-2 items-end"
@@ -387,6 +540,44 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
             <span className="icon">travel_explore</span>
           </button>
 
+          <button
+            type="button"
+            onClick={handleBatchToggle}
+            disabled={disabled}
+            className="icon-button"
+            aria-label="Toggle batch mode"
+            title={batchMode ? (batchQueue.length > 0 ? `Release ${batchQueue.length} queued` : 'Batch mode ON — click to exit') : 'Batch mode OFF'}
+            style={{
+              backgroundColor: batchMode ? 'var(--primary-container)' : 'transparent',
+              color: batchMode ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
+              borderRadius: 'var(--unit-3)',
+              transition: 'all 0.2s ease',
+              position: 'relative'
+            }}
+          >
+            <span className="icon">playlist_add</span>
+            {batchQueue.length > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: '-4px',
+                right: '-4px',
+                minWidth: '18px',
+                height: '18px',
+                borderRadius: '9px',
+                backgroundColor: 'var(--primary)',
+                color: 'var(--on-primary)',
+                fontSize: '11px',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                padding: '0 5px',
+                lineHeight: 1,
+                pointerEvents: 'none'
+              }}>{batchQueue.length}</span>
+            )}
+          </button>
+
           <input
             ref={fileInputRef}
             type="file"
@@ -419,18 +610,19 @@ function ChatInput({ onSendMessage, disabled, placeholder = "Type your message..
             type="submit"
             disabled={disabled || (!message.trim() && !selectedImage && !selectedDocument)}
             className="icon-button"
-            aria-label="Send message"
+            aria-label={batchMode ? "Add to batch" : "Send message"}
+            title={batchMode ? "Add to batch queue" : "Send message"}
             style={{
               width: '40px',
               height: '40px',
               minWidth: '40px',
               minHeight: '40px',
               flexShrink: 0,
-              backgroundColor: 'var(--surface-container)',
-              color: 'var(--on-surface-variant)'
+              backgroundColor: batchMode ? 'var(--primary-container)' : 'var(--surface-container)',
+              color: batchMode ? 'var(--on-primary-container)' : 'var(--on-surface-variant)'
             }}
           >
-            <span className="icon" style={{ fontSize: '24px' }}>send</span>
+            <span className="icon" style={{ fontSize: '24px' }}>{batchMode ? 'add' : 'send'}</span>
           </button>
         </div>
       </form>

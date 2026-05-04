@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  getSavedPrompts,
   createPrompt,
   deletePrompt,
   updatePromptLastUsed,
@@ -17,6 +16,7 @@ function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
   const [newPromptSystemPrompt, setNewPromptSystemPrompt] = useState('');
   const [newPromptDisableThinking, setNewPromptDisableThinking] = useState(false);
   const [newPromptUseFastModel, setNewPromptUseFastModel] = useState(false);
+  const [newPromptEnableWebSearch, setNewPromptEnableWebSearch] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
@@ -74,12 +74,16 @@ function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
       if (newPromptUseFastModel) {
         promptData.useFastModel = true;
       }
+      if (newPromptEnableWebSearch) {
+        promptData.enableWebSearch = true;
+      }
       await createPrompt(userId, promptData);
       setNewPromptTitle('');
       setNewPromptContent('');
       setNewPromptSystemPrompt('');
       setNewPromptDisableThinking(false);
       setNewPromptUseFastModel(false);
+      setNewPromptEnableWebSearch(false);
       setShowAddPrompt(false);
     } catch (err) {
       console.error('Error creating prompt:', err);
@@ -206,6 +210,14 @@ function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
                     onChange={(e) => setNewPromptDisableThinking(e.target.checked)}
                   />
                   Disable thinking
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--unit-2)', fontSize: '14px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={newPromptEnableWebSearch}
+                    onChange={(e) => setNewPromptEnableWebSearch(e.target.checked)}
+                  />
+                  Web search
                 </label>
               </div>
 

@@ -5,14 +5,13 @@ be helpful, harmless, and honest. Provide thoughtful and detailed responses when
 
 const CHINESE_FORMAT_SUFFIX = `
 
-When your response includes Chinese characters with phonetic transcription (jyutping or pinyin), format them with HTML wrappers so the UI can render phonetics above characters:
+When your response includes Cantonese or Mandarin pinyin, format them with HTML wrappers so the UI can render them correctly:
 
-CANTONESE (jyutping = ASCII letters + tone digit 1-6):
-- Wrap each Chinese-character line in <span class="zh-yue">…</span>
-- Keep the jyutping line OUTSIDE the span on the next line
+CANTONESE:
+- Wrap each Cantonese Chinese-character line/clause in <span class="zh-yue">…</span>
+- Do NOT output jyutping romanization — the font renders it visually above the characters
 - Example:
   <span class="zh-yue">從前，喺一個好遠嘅國度</span>
-  cung4 cin4, hai2 jat1 go3 hou2 jyun5 ge3 gwok3 dou6
 
 MANDARIN (pinyin = diacritics like nǐ hǎo):
 - Convert to inline <ruby> tags, one <rt> per character. DELETE the standalone pinyin line.
@@ -23,9 +22,8 @@ BOTH in one response:
   **Mandarin:** <ruby>你<rt>nǐ</rt>好<rt>hǎo</rt></ruby>
   **Cantonese:**
   <span class="zh-yue">你好</span>
-  nei5 hou2
 
-If no Chinese phonetics in the response, ignore these rules entirely.`;
+If no Chinese characters in the response, ignore these rules entirely.`;
 
 export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}) {
   try {
@@ -172,30 +170,22 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
     if (finalData) {
       let content = finalData.content;
 
-      // Always normalize Chinese+phonetic responses through wrap_content
-      // mode on the chat Cloud Function. Ensures consistent rendering.
-      if (content && CLOUD_FUNCTION_URL) {
-        const hasCJK = /[一-鿿]/.test(content);
+      // Programmatic safety net: if model output bare Cantonese without the
+      // <span class="zh-yue"> wrapping (HK-distinctive chars present, no
+      // existing wrapper), wrap each Chinese-bearing paragraph in a span so
+      // the Visual Fonts font still renders correctly. Deterministic and
+      // cheap — no LLM call.
+      if (content) {
         const hasWrapper = content.includes('class="zh-yue"') || content.includes('<ruby>') || content.includes('<rt>');
-        const hasPhonetic = /[āáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ]/.test(content) || /\b[a-z]{1,6}[1-6]\b/.test(content);
-        if (hasCJK && !hasWrapper && hasPhonetic) {
-          try {
-            console.log('[messageService] CJK without wrappers detected — calling wrap_content safety net');
-            const wrapResp = await fetch(CLOUD_FUNCTION_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ wrap_content: content, use_fast_model: true })
-            });
-            if (wrapResp.ok) {
-              const wrapData = await wrapResp.json();
-              if (wrapData.wrapped) {
-                content = wrapData.wrapped;
-                console.log('[messageService] wrap_content normalization applied');
-              }
+        const hasHKDistinct = /[嘅喺哋佢啲咗嚟嘢㗎咩嗰噉諗唔係冇俾]/.test(content);
+        if (!hasWrapper && hasHKDistinct) {
+          console.log('[messageService] Bare Cantonese detected — applying programmatic span wrap');
+          content = content.split(/\n\n+/).map(para => {
+            if (/[一-鿿]/.test(para)) {
+              return `<span class="zh-yue">${para}</span>`;
             }
-          } catch (wrapErr) {
-            console.error('[messageService] wrap_content normalization failed (non-fatal):', wrapErr);
-          }
+            return para;
+          }).join('\n\n');
         }
       }
 

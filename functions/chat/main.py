@@ -32,16 +32,22 @@ markdown that visually renders Chinese with phonetic annotations. Apply the \
 rules below mechanically. Output ONLY the transformed message text — no \
 commentary, no code fences around the output.
 
+Visual Fonts (canto.hk VF-Canto color font) renders jyutping above each \
+Cantonese character automatically. Therefore: never output a jyutping line \
+below a Cantonese span, never output (jyutping) parentheticals next to a \
+Cantonese span, and strip them if present in the input.
+
 RULES
 
 1. CANTONESE — wrap the Chinese-character LINE in <span class="zh-yue">…</span>.
-   Leave the jyutping line that follows it OUTSIDE the span (it stays as plain
-   text below the span as a fallback when the Visual Fonts font is not loaded).
+   Any jyutping romanization line that immediately follows the Chinese line
+   MUST be removed — Visual Fonts renders jyutping above each character. A
+   "jyutping line" is a line of ASCII letters with tone digits 1-6, optionally
+   with commas/punctuation, that pairs syllable-by-syllable with the preceding
+   Chinese line (e.g. "nei5 hou2", "cung4 cin4 hai2 jat1 go3 hou2 jyun5").
    A "Cantonese run" is Chinese characters whose accompanying romanization is
-   jyutping — ASCII letters ending in tone digits 1-6 (e.g. "nei5 hou2",
-   "cung4 cin4 hai2 jat1 go3 hou2 jyun5"). A Chinese run with no romanization
-   counts as Cantonese only if it contains at least one HK-distinctive
-   character: 嘅 喺 哋 佢 啲 咗 嚟 嘢 㗎 咩 嗰 噉 諗 唔 係 冇 俾.
+   jyutping, OR a Chinese run with no romanization that contains at least one
+   HK-distinctive character: 嘅 喺 哋 佢 啲 咗 嚟 嘢 㗎 咩 嗰 噉 諗 唔 係 冇 俾.
 
    Wrap the WHOLE Cantonese sentence/clause/line in a single <span class="zh-yue">,
    not individual sub-spans. If a sentence has bold or italic markdown inside
@@ -72,20 +78,24 @@ RULES
 
 3. INTERLEAVED CHAR-PINYIN FORMAT: when each Chinese character is immediately
    followed by its pinyin/jyutping with no separator (e.g. 鸟niǎo儿ér飞fēi上shàng
-   or 春ceon1天tin1), split each char-reading pair into ruby or span:
+   or 春ceon1天tin1), split each char-reading pair:
      Mandarin: 鸟niǎo儿ér飞fēi → <ruby>鸟<rt>niǎo</rt>儿<rt>ér</rt>飞<rt>fēi</rt></ruby>
-     Cantonese: 春ceon1天tin1 → <span class="zh-yue">春ceon1天tin1</span>
+     Cantonese: 春ceon1天tin1 → <span class="zh-yue">春天</span>
    Detection: a CJK character immediately followed by a Latin+diacritic syllable
    (Mandarin) or a Latin+digit syllable (Cantonese), repeating for multiple chars.
+   For Cantonese, strip the jyutping syllables and keep only the Chinese characters.
    Punctuation between chars (，。！) keeps its position with an empty <rt></rt>.
 
 4. INLINE PARENTHESIZED FORMS:
-     **驚青** (geng1 ceng1)   →   **<span class="zh-yue">驚青</span>** (geng1 ceng1)
+     **驚青** (geng1 ceng1)   →   **<span class="zh-yue">驚青</span>** — scaredy-cat
      **你好** (nǐ hǎo)        →   **<ruby>你<rt>nǐ</rt>好<rt>hǎo</rt></ruby>**
    For inline Mandarin, the "(nǐ hǎo)" parenthetical is consumed into the
-   ruby and removed. For inline Cantonese, keep "(geng1 ceng1)" OUTSIDE the
-   span so it renders at normal text size (the span inherits a large
-   font-size for Visual Fonts, and ASCII jyutping inside it would be huge).
+   ruby and removed. For inline Cantonese, drop the "(jyutping)" parenthetical
+   entirely — Visual Fonts renders jyutping above each character so the
+   parenthetical is visual duplication. Only strip parentheticals that are
+   immediately adjacent to the wrapped Cantonese token and contain pure
+   jyutping syllables (ASCII + digits 1-6). The meaning text after = or —
+   (e.g. "scaredy-cat", "you all") is preserved.
 
 5. SECTION HEADERS like "**Mandarin:**" and "**Cantonese:**" stay OUTSIDE any
    wrapper. Only the content lines after them go inside.
@@ -94,7 +104,7 @@ RULES
    English text, blank lines, Markdown emphasis. Do NOT translate, summarize,
    re-order, or rewrite any text.
 
-7. NO PHONETIC-COUPLED CHINESE → return the input unchanged.
+7. NO CHINESE CHARACTERS NEEDING WRAPPING → return the input unchanged.
 
 EXAMPLES
 
@@ -107,10 +117,8 @@ cung4 cin4, hai2 jat1 go3 hou2 jyun5 ge3 gwok3 dou6 leoi5 min6
 jau5 jat1 wai2 gwok3 wong4 tung4 maai4 wong4 hau6
 OUTPUT:
 <span class="zh-yue">從前，喺一個好遠嘅國度裏面</span>
-cung4 cin4, hai2 jat1 go3 hou2 jyun5 ge3 gwok3 dou6 leoi5 min6
 
 <span class="zh-yue">有一位國王同埋王后。</span>
-jau5 jat1 wai2 gwok3 wong4 tung4 maai4 wong4 hau6
 
 [Example 2 — sectioned Mandarin + Cantonese]
 INPUT:
@@ -127,7 +135,6 @@ OUTPUT:
 
 **Cantonese:**
 <span class="zh-yue">哈囉哈囉，相反嘅嘢</span>
-haa1 lo1 haa1 lo1, soeng1 faan2 ge3 je5
 
 [Example 3 — inline parenthesized vocabulary breakdown]
 INPUT:
@@ -135,9 +142,9 @@ INPUT:
 - **個** (go3) = classifier/possessive marker
 - **驚青** (geng1 ceng1) — scaredy-cat
 OUTPUT:
-- **<span class="zh-yue">你哋</span>** (nei5 dei6) = you all, you guys (plural "you")
-- **<span class="zh-yue">個</span>** (go3) = classifier/possessive marker
-- **<span class="zh-yue">驚青</span>** (geng1 ceng1) — scaredy-cat
+- **<span class="zh-yue">你哋</span>** = you all, you guys (plural "you")
+- **<span class="zh-yue">個</span>** = classifier/possessive marker
+- **<span class="zh-yue">驚青</span>** — scaredy-cat
 
 [Example 4 — Cantonese with HK-distinctive chars, no romanization]
 INPUT:
@@ -151,11 +158,24 @@ Mandarin: 鸟niǎo儿ér飞fēi上shàng，鸟niǎo儿ér飞fēi下xià
 OUTPUT:
 Mandarin: <ruby>鸟<rt>niǎo</rt>儿<rt>ér</rt>飞<rt>fēi</rt>上<rt>shàng</rt>，<rt></rt>鸟<rt>niǎo</rt>儿<rt>ér</rt>飞<rt>fēi</rt>下<rt>xià</rt></ruby>
 
+[Example 5b — interleaved char-jyutping Cantonese]
+INPUT:
+Cantonese: 春ceon1天tin1花faa1園jyun4
+OUTPUT:
+Cantonese: <span class="zh-yue">春天花園</span>
+
 [Example 6 — no Chinese, unchanged]
 INPUT:
 Here's a Shakespeare soliloquy about computing.
 OUTPUT:
 Here's a Shakespeare soliloquy about computing.
+
+[Example 7 — already-wrapped Cantonese with trailing jyutping to strip]
+INPUT:
+<span class="zh-yue">你好</span>
+nei5 hou2
+OUTPUT:
+<span class="zh-yue">你好</span>
 """
 
 
