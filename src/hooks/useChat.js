@@ -128,6 +128,7 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
         const chatData = { title };
         if (newChatConfig.disableThinking) chatData.disableThinking = true;
         if (newChatConfig.useFastModel) chatData.useFastModel = true;
+        if (newChatConfig.enableWebSearch) chatData.enableWebSearch = true;
         if (newChatConfig.systemPrompt) chatData.systemPrompt = newChatConfig.systemPrompt;
         
         chatId = await createChat(userId, chatData);

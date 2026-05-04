@@ -29,6 +29,9 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
       if (selectedPrompt?.useFastModel) {
         chatConfig.useFastModel = true;
       }
+      if (selectedPrompt?.enableWebSearch) {
+        chatConfig.enableWebSearch = true;
+      }
       if (selectedPrompt?.systemPrompt) {
         chatConfig.systemPrompt = selectedPrompt.systemPrompt;
       }
@@ -37,19 +40,19 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
 
       // sendMessage will create a new chat and return the chat ID
       const result = await sendMessage(content, image, chatConfig);
-      
+
       if (result && result.chatId && result.isNewChat) {
         // Immediately navigate to the new chat with a temporary chat object
         const tempChat = {
           id: result.chatId,
-          title: content.trim().length > 40 
-            ? content.trim().substring(0, 40) + '...' 
+          title: content.trim().length > 40
+            ? content.trim().substring(0, 40) + '...'
             : content.trim(),
           createdAt: new Date(),
           lastMessage: content,
           lastMessageAt: new Date()
         };
-        
+
         // Navigate immediately
         onSelectChat(tempChat);
       }
@@ -59,6 +62,32 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
     } finally {
       setIsThinking(false);
     }
+  };
+
+  const handleBatchRelease = async (items) => {
+    if (!items || items.length === 0) return;
+    const [firstItem, ...remaining] = items;
+
+    // Stash remaining items so ChatInterface picks them up after the chat exists.
+    // The first item creates the chat (and navigates); the rest get released in
+    // the chat view once the first response has settled.
+    if (remaining.length > 0) {
+      try {
+        sessionStorage.setItem(`pendingBatch-${user.uid}`, JSON.stringify(remaining.map(item => ({
+          content: item.content,
+          // Image needs to be re-uploaded from a fresh File reference, but
+          // sessionStorage can't hold File objects. We store the data URL and
+          // type so ChatInterface can reconstruct a File before sending.
+          image: item.image ? { url: item.image.url, type: item.image.type, name: item.image.file?.name } : null,
+          extraOptions: item.extraOptions || {},
+        }))));
+      } catch (e) {
+        console.error('Failed to stash batch items:', e);
+        setError('Could not queue all batch items.');
+      }
+    }
+
+    await handleSendMessage(firstItem.content, firstItem.image, firstItem.extraOptions);
   };
 
   return (
@@ -136,11 +165,13 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
       )}
       
       <div className="home-input-area">
-        <ChatInput 
+        <ChatInput
           onSendMessage={handleSendMessage}
+          onBatchRelease={handleBatchRelease}
           disabled={isThinking}
           placeholder="Message Claude..."
           value={selectedPromptContent}
+          defaultWebSearch={!!selectedPrompt?.enableWebSearch}
         />
       </div>
     </div>

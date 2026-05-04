@@ -30,9 +30,10 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     const config = {};
     if (currentChat?.disableThinking) config.disableThinking = true;
     if (currentChat?.useFastModel) config.useFastModel = true;
+    if (currentChat?.enableWebSearch) config.enableWebSearch = true;
     if (currentChat?.systemPrompt) config.systemPrompt = currentChat.systemPrompt;
     return config;
-  }, [currentChat?.disableThinking, currentChat?.useFastModel, currentChat?.systemPrompt]);
+  }, [currentChat?.disableThinking, currentChat?.useFastModel, currentChat?.enableWebSearch, currentChat?.systemPrompt]);
   
   const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id, currentChatConfig);
   const previousMessagesLength = useRef(0);
@@ -133,6 +134,76 @@ function ChatInterface({ user, onThemeToggle, theme }) {
       setIsThinking(false);
     }
   };
+
+  const handleBatchRelease = async (items) => {
+    setError('');
+    setIsThinking(true);
+    let processed = 0;
+    try {
+      for (const item of items) {
+        try {
+          // Reconstruct File from data URL if needed (sessionStorage path)
+          let imageToSend = item.image;
+          if (imageToSend && imageToSend.url && !imageToSend.file) {
+            try {
+              const resp = await fetch(imageToSend.url);
+              const blob = await resp.blob();
+              const file = new File([blob], imageToSend.name || `batch-${Date.now()}.jpg`, { type: imageToSend.type || blob.type });
+              imageToSend = { file, url: imageToSend.url, type: file.type };
+            } catch (e) {
+              console.error('Failed to reconstruct File from queued image:', e);
+              throw new Error('Could not reconstruct queued image');
+            }
+          }
+          await sendMessage(item.content, imageToSend, item.extraOptions);
+          processed += 1;
+        } catch (err) {
+          console.error(`Batch item ${processed + 1}/${items.length} failed:`, err);
+          setError(`Batch item ${processed + 1} of ${items.length} failed: ${err.message}. Remaining items skipped.`);
+          break;
+        }
+      }
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  // Drain pending batch items stashed by HomePage during navigation.
+  // Wait for the first response to settle before releasing the rest.
+  const pendingBatchHandledRef = useRef(false);
+  useEffect(() => {
+    pendingBatchHandledRef.current = false;
+  }, [currentChat?.id]);
+
+  useEffect(() => {
+    if (!user?.uid || !currentChat?.id || pendingBatchHandledRef.current) return;
+    if (loading || isThinking) return;
+    if (!messages || messages.length < 2) return;
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg.role !== 'assistant' || lastMsg.isStreaming) return;
+
+    const key = `pendingBatch-${user.uid}`;
+    const stash = sessionStorage.getItem(key);
+    if (!stash) return;
+
+    let pending;
+    try {
+      pending = JSON.parse(stash);
+    } catch (e) {
+      console.error('Failed to parse pending batch:', e);
+      sessionStorage.removeItem(key);
+      return;
+    }
+    if (!Array.isArray(pending) || pending.length === 0) {
+      sessionStorage.removeItem(key);
+      return;
+    }
+
+    pendingBatchHandledRef.current = true;
+    sessionStorage.removeItem(key);
+    console.log(`[batch] Releasing ${pending.length} pending items into chat ${currentChat.id}`);
+    handleBatchRelease(pending);
+  }, [user?.uid, currentChat?.id, loading, isThinking, messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNewChat = () => {
     // Clear current chat to go back to home page
@@ -285,9 +356,11 @@ function ChatInterface({ user, onThemeToggle, theme }) {
               </div>
             )}
             
-            <ChatInput 
+            <ChatInput
               onSendMessage={handleSendMessage}
+              onBatchRelease={handleBatchRelease}
               disabled={loading || isThinking}
+              defaultWebSearch={!!currentChatConfig.enableWebSearch}
             />
           </div>
         );
