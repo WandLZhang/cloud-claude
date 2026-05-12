@@ -3,28 +3,6 @@ const CLOUD_FUNCTION_URL = process.env.REACT_APP_CLOUD_FUNCTION_URL;
 const DEFAULT_SYSTEM_PROMPT = `You are Claude, a helpful AI assistant. Engage in natural conversation,
 be helpful, harmless, and honest. Provide thoughtful and detailed responses when appropriate.`;
 
-const CHINESE_FORMAT_SUFFIX = `
-
-When your response includes Cantonese or Mandarin pinyin, format them with HTML wrappers so the UI can render them correctly:
-
-CANTONESE:
-- Wrap each Cantonese Chinese-character line/clause in <span class="zh-yue">…</span>
-- Do NOT output jyutping romanization — the font renders it visually above the characters
-- Example:
-  <span class="zh-yue">從前，喺一個好遠嘅國度</span>
-
-MANDARIN (pinyin = diacritics like nǐ hǎo):
-- Convert to inline <ruby> tags, one <rt> per character. DELETE the standalone pinyin line.
-- Example: <ruby>你<rt>nǐ</rt>好<rt>hǎo</rt></ruby>
-- For interleaved format (鸟niǎo儿ér), also convert: <ruby>鸟<rt>niǎo</rt>儿<rt>ér</rt></ruby>
-
-BOTH in one response:
-  **Mandarin:** <ruby>你<rt>nǐ</rt>好<rt>hǎo</rt></ruby>
-  **Cantonese:**
-  <span class="zh-yue">你好</span>
-
-If no Chinese characters in the response, ignore these rules entirely.`;
-
 export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}) {
   try {
     // Prepare messages array for Claude.
@@ -58,16 +36,7 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
       use_cache: true
     };
 
-    // Use custom system prompt if provided, otherwise use default.
-    // Append the Chinese formatting suffix only when the prompt is
-    // Chinese-related (mentions Mandarin/Cantonese/pinyin/jyutping).
-    // For all other cases, the wrap_content post-processor catches any
-    // Chinese responses that slip through without wrappers.
-    const basePrompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-    const firstMsgContent = previousMessages.length > 0 ? (previousMessages[0].content || '') : '';
-    const promptLower = (basePrompt + ' ' + firstMsgContent + ' ' + (newContent || '')).toLowerCase();
-    const isChinese = /mandarin|cantonese|pinyin|jyutping|粵|普通話|广东话|翻译|翻譯/.test(promptLower);
-    payload.system_prompt = isChinese ? basePrompt + CHINESE_FORMAT_SUFFIX : basePrompt;
+    payload.system_prompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
 
     // Add image if provided
     if (image) {
@@ -169,30 +138,9 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
 
     // Return final data with complete response
     if (finalData) {
-      let content = finalData.content;
-
-      // Programmatic safety net: if model output bare Cantonese without the
-      // <span class="zh-yue"> wrapping (HK-distinctive chars present, no
-      // existing wrapper), wrap each Chinese-bearing paragraph in a span so
-      // the Visual Fonts font still renders correctly. Deterministic and
-      // cheap — no LLM call.
-      if (content) {
-        const hasWrapper = content.includes('class="zh-yue"') || content.includes('<ruby>') || content.includes('<rt>');
-        const hasHKDistinct = /[嘅喺哋佢啲咗嚟嘢㗎咩嗰噉諗唔係冇俾喎囉噃吖嬲靚攰嘥嘞瞓嚿掹揼]/.test(content);
-        if (!hasWrapper && hasHKDistinct) {
-          console.log('[messageService] Bare Cantonese detected — applying programmatic span wrap');
-          content = content.split(/\n\n+/).map(para => {
-            if (/[一-鿿]/.test(para)) {
-              return `<span class="zh-yue">${para}</span>`;
-            }
-            return para;
-          }).join('\n\n');
-        }
-      }
-
       yield {
         type: 'done',
-        content,
+        content: finalData.content,
         thinking: finalData.thinking,
         usage: finalData.usage,
         cached: finalData.cached,
