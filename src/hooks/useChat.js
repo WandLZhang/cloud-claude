@@ -209,11 +209,10 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
               }
             }
 
-            // Final update with complete message
+            // Final update — keep placeholder's original timestamp for correct sort order
             const finalUpdate = {
               content: finalResponse?.content || fullContent,
               isStreaming: false,
-              timestamp: new Date()
             };
 
             if (finalResponse?.thinking) {
@@ -266,11 +265,11 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
         }
       }
 
-      // Final update with complete message
+      // Final update — keep the placeholder's original timestamp so it always
+      // sorts before the next user message (critical for batch mode ordering).
       const finalUpdate = {
         content: finalResponse?.content || fullContent,
         isStreaming: false,
-        timestamp: new Date()
       };
 
       if (finalResponse?.thinking) {
