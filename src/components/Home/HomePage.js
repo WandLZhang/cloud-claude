@@ -51,6 +51,7 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
           ...(chatConfig.enableWebSearch && { enableWebSearch: true }),
           ...(chatConfig.disableThinking && { disableThinking: true }),
           ...(chatConfig.useFastModel && { useFastModel: true }),
+          ...(chatConfig.systemPrompt && { systemPrompt: chatConfig.systemPrompt }),
         };
 
         // Navigate immediately
