@@ -485,6 +485,26 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
                   </button>
                 </div>
               ))}
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={disabled}
+                style={{
+                  flexShrink: 0,
+                  width: '56px',
+                  height: '56px',
+                  borderRadius: 'var(--unit-2)',
+                  border: '2px dashed var(--outline-variant)',
+                  backgroundColor: 'transparent',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  cursor: 'pointer',
+                }}
+                aria-label="Add more to batch"
+              >
+                <span className="icon" style={{ fontSize: '24px', color: 'var(--on-surface-variant)' }}>add</span>
+              </button>
             </div>
           </div>
         )}
