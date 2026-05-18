@@ -13,17 +13,14 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
   const [selectedPrompt, setSelectedPrompt] = useState(null);
   const { sendMessage } = useChat(user.uid, null);
 
-  // Determine if thinking should be disabled based on prompt title
-  const shouldDisableThinking = selectedPrompt?.title?.toLowerCase().includes('everyday chinese');
-
   const handleSendMessage = async (content, image, extraOptions = {}) => {
     setError('');
     setIsThinking(true);
 
     try {
-      // Build chat config based on selected prompt
+      // Build chat config from template flags only — no hardcoded overrides
       const chatConfig = {};
-      if (shouldDisableThinking || selectedPrompt?.disableThinking) {
+      if (selectedPrompt?.disableThinking) {
         chatConfig.disableThinking = true;
       }
       if (selectedPrompt?.useFastModel) {
