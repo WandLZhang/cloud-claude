@@ -595,44 +595,44 @@ def chat(request):
                             print(f"{label} usage: {json.dumps(u)} stop_reason={sr} text_len={len(text)}")
                             return text, sr, u
 
-                    # Refusal-aware retry chain. Per Anthropic's streaming-refusals doc,
-                    # `stop_reason=refusal` means the safety classifier intervened — partial
-                    # text may have been emitted but the turn is bad and must be replaced.
+                    # Refusal-aware retry chain:
+                    #   1. Opus 4.7 adaptive thinking (already done above)
+                    #   2. Opus 4.6, no thinking, full context
+                    #   3. Sonnet 4.6, no thinking, minimal context
                     needs_retry = (stop_reason == 'refusal') or (not full_response.strip() and not disable_thinking)
                     if needs_retry:
-                        # Attempt 2: same context, thinking off
-                        retry_opts = dict(message_options)
-                        retry_opts.pop('thinking', None)
-                        retry_opts.pop('output_config', None)
                         try:
-                            print(f"Refusal/empty-text detected — retry 1 (thinking off, full context)")
-                            text2, stop2, usage2 = run_attempt(retry_opts, "Retry 1")
+                            # Retry 1: Opus 4.6 with adaptive thinking, full context
+                            retry_opts = dict(message_options)
+                            retry_opts['model'] = 'claude-opus-4-6'
+                            retry_opts['thinking'] = {'type': 'adaptive'}
+                            retry_opts.pop('output_config', None)
+                            print(f"Refusal/empty-text — retry 1 (Opus 4.6, adaptive thinking, full context)")
+                            text2, stop2, usage2 = run_attempt(retry_opts, "Retry 1 (Opus 4.6)")
                             done_payload['retry_used'] = True
                             done_payload['retry_usage'] = usage2
                             done_payload['retry_stop_reason'] = stop2
+                            done_payload['retry_model'] = 'claude-opus-4-6'
 
                             if stop2 == 'refusal':
-                                # Attempt 3: strip history, keep only initial setup turn(s)
-                                # + current user turn. Per the doc, removing the refused
-                                # turns from context is required to break the refusal loop.
+                                # Retry 2: Sonnet 4.6, no thinking, minimal context
                                 minimal_msgs = []
                                 if all_messages:
-                                    # Keep msg 0 (system-prompt-equivalent setup) if it's a user text turn
                                     if all_messages[0].get('role') == 'user':
                                         minimal_msgs.append(all_messages[0])
-                                    # Always include current turn (last message, the new user image)
                                     if len(all_messages) > 1:
                                         minimal_msgs.append(all_messages[-1])
-                                minimal_opts = dict(retry_opts)
-                                minimal_opts['messages'] = minimal_msgs
-                                print(f"Retry 1 also refused — retry 2 (thinking off, minimal context: {len(minimal_msgs)} msgs)")
-                                text3, stop3, usage3 = run_attempt(minimal_opts, "Retry 2")
+                                sonnet_opts = dict(retry_opts)
+                                sonnet_opts['model'] = MODEL_FAST
+                                sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
+                                sonnet_opts['messages'] = minimal_msgs
+                                print(f"Retry 1 also refused — retry 2 (Sonnet 4.6, minimal context: {len(minimal_msgs)} msgs)")
+                                text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
                                 done_payload['retry2_usage'] = usage3
                                 done_payload['retry2_stop_reason'] = stop3
+                                done_payload['retry2_model'] = MODEL_FAST
 
                                 if stop3 == 'refusal':
-                                    # Give up gracefully with a user-facing message rather
-                                    # than saving an empty bubble to Firestore.
                                     full_response = ("I wasn't able to process this image. "
                                                      "It may have triggered a content filter. "
                                                      "Try uploading a different photo, or start a new chat.")
