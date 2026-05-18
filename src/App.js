@@ -18,6 +18,13 @@ function App() {
     setTheme(savedTheme);
     document.body.className = savedTheme;
 
+    // Test mode: skip auth with a mock user for Playwright / local UI testing
+    if (process.env.REACT_APP_TEST_MODE === 'true') {
+      setUser({ uid: 'test-user', displayName: 'Test User', photoURL: null });
+      setLoading(false);
+      return;
+    }
+
     // Set up auth state listener
     const unsubscribe = onAuthStateChanged(auth, (user) => {
       setUser(user);

@@ -183,13 +183,15 @@ body {
 /* Input area styles */
 .input-container {
   padding: var(--unit-4) var(--unit-4) var(--unit-4);
-  background: linear-gradient(to bottom, 
-    transparent 0%, 
+  background: linear-gradient(to bottom,
+    transparent 0%,
     var(--surface) 20%);
   display: flex;
   gap: var(--unit-2);
   align-items: flex-end;
   position: relative;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .input-container::before {
@@ -205,6 +207,8 @@ body {
 
 .input-wrapper {
   flex: 1;
+  min-width: 0;
+  overflow: hidden;
   position: relative;
   background: var(--surface-container-low);
   border-radius: calc(var(--unit-6) + 4px);
@@ -227,7 +231,7 @@ body {
 }
 
 .chat-input {
-  width: 100%;
+  flex: 1;
   min-width: 0;
   max-height: 120px;
   min-height: 48px;
