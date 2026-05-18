@@ -392,6 +392,8 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
             border: '1px solid var(--outline-variant)',
             maxHeight: '100px',
             overflowY: 'auto',
+            width: '100%',
+            boxSizing: 'border-box',
           }}>
             <div style={{
               fontSize: '11px',
