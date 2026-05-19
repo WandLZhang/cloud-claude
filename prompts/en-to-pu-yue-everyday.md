@@ -1,6 +1,6 @@
 ---
 firestore_id: "53RE9M0MEVqulQRv0SGK"
-title: "Everyday Chinese"
+title: "EN → 普粵 (everyday)"
 content: "Translate to colloquial Cantonese and Mandarin:"
 enableWebSearch: true
 disableThinking: false
