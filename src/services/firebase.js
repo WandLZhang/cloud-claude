@@ -303,7 +303,7 @@ export const deletePrompt = async (userId, promptId) => {
 
 export const subscribeToUserPrompts = (userId, callback) => {
   const promptsRef = collection(db, 'prompts', userId, 'userPrompts');
-  const q = query(promptsRef, orderBy('createdAt', 'desc'));
+  const q = query(promptsRef, orderBy('title', 'asc'));
   
   return onSnapshot(q, (snapshot) => {
     const prompts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

@@ -1,6 +1,6 @@
 ---
 firestore_id: "g8QTqrl3O40ex8pmBSvf"
-title: "Translate Mandarin books"
+title: "中 → 粵"
 content: "Translate the following Mandarin text to colloquial Cantonese:"
 enableWebSearch: true
 disableThinking: false
@@ -46,7 +46,7 @@ The app renders Cantonese with a special font. You MUST wrap output correctly or
 
 Wrap each Cantonese Chinese-character clause in <span class="zh-yue">…</span>.
 Do NOT output jyutping — the font renders it visually above each character.
-Do NOT output Mandarin, pinyin, or <ruby> tags — this template is Cantonese only.
+Do NOT output Mandarin or pinyin — this template is Cantonese only.
 
 Example:
   <span class="zh-yue">從前，喺一個好遠嘅國度</span>
@@ -54,4 +54,4 @@ Example:
 CRITICAL:
 - Wrap the WHOLE clause in one span, not individual characters
 - No jyutping or romanization of any kind
-- No <ruby> tags — those are for other templates
+- No pinyin or Mandarin annotations — those are for other templates
