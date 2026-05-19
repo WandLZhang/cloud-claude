@@ -199,10 +199,15 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
             for await (const data of stream) {
               if (data.type === 'chunk') {
                 fullContent += data.text;
-                // Update the message in Firebase with accumulated content
                 await updateMessage(userId, chatId, messageId, {
                   content: fullContent,
                   isStreaming: true
+                });
+              } else if (data.type === 'retry') {
+                await updateMessage(userId, chatId, messageId, {
+                  content: fullContent,
+                  isStreaming: true,
+                  retryStatus: data.reason
                 });
               } else if (data.type === 'done') {
                 finalResponse = data;
@@ -213,6 +218,7 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
             const finalUpdate = {
               content: finalResponse?.content || fullContent,
               isStreaming: false,
+              retryStatus: null,
             };
 
             if (finalResponse?.thinking) {
@@ -255,10 +261,15 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
       for await (const data of stream) {
         if (data.type === 'chunk') {
           fullContent += data.text;
-          // Update the message in Firebase with accumulated content
           await updateMessage(userId, chatId, messageId, {
             content: fullContent,
             isStreaming: true
+          });
+        } else if (data.type === 'retry') {
+          await updateMessage(userId, chatId, messageId, {
+            content: fullContent,
+            isStreaming: true,
+            retryStatus: data.reason
           });
         } else if (data.type === 'done') {
           finalResponse = data;
@@ -270,6 +281,7 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
       const finalUpdate = {
         content: finalResponse?.content || fullContent,
         isStreaming: false,
+        retryStatus: null,
       };
 
       if (finalResponse?.thinking) {

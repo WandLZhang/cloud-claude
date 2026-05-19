@@ -601,6 +601,7 @@ def chat(request):
                     #   3. Sonnet 4.6, no thinking, minimal context
                     needs_retry = (stop_reason == 'refusal') or (not full_response.strip() and not disable_thinking)
                     if needs_retry:
+                        yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': 'claude-opus-4-6', 'reason': 'Content filter triggered — retrying with a different model'})}\n\n"
                         try:
                             # Retry 1: Opus 4.6 with adaptive thinking, full context
                             retry_opts = dict(message_options)
@@ -615,6 +616,7 @@ def chat(request):
                             done_payload['retry_model'] = 'claude-opus-4-6'
 
                             if stop2 == 'refusal':
+                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 2, 'model': MODEL_FAST, 'reason': 'Still blocked — trying a faster model'})}\n\n"
                                 # Retry 2: Sonnet 4.6, no thinking, minimal context
                                 minimal_msgs = []
                                 if all_messages:
