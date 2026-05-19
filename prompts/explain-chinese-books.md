@@ -27,11 +27,11 @@ Search Chinese queries first — Chinese-language sources provide richer context
 
 ## OUTPUT FORMAT — MANDATORY HTML WRAPPING
 
-Wrap each Chinese-character clause in <ruby> tags with one <rt> per character. The pinyin renders above each character.
+Wrap each Mandarin Chinese-character clause in <span class="zh-cmn">…</span>. The font renders pinyin visually above each character. Do NOT output pinyin yourself.
 
 Example:
   **Mandarin:**
-  <ruby>你<rt>nǐ</rt>好<rt>hǎo</rt>，<rt></rt>世<rt>shì</rt>界<rt>jiè</rt></ruby>
+  <span class="zh-cmn">你好，世界</span>
 
   **English:**
   Hello, world.
@@ -41,7 +41,7 @@ Example:
   - 世界 — world/universe; composed of 世 (generation) + 界 (boundary)
 
 CRITICAL:
-- Mandarin section uses <ruby> tags only — NEVER <span class="zh-yue"> (that triggers the wrong font)
+- Use <span class="zh-cmn"> for Mandarin — NEVER <span class="zh-yue"> (wrong font)
+- NEVER output pinyin or romanization — the font renders it automatically
 - Section headers like **Mandarin:** **English:** **Notes:** stay OUTSIDE wrappers
 - No Chinese characters in response → no wrappers
-- NEVER invent pinyin — only use pinyin matching the original characters

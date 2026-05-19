@@ -137,7 +137,7 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
             >
               {message.content || ''}
             </ReactMarkdown>
-            {isStreaming && !message.content && (
+            {isStreaming && !message.content && !message.retryStatus && (
               <div className="typing-indicator-wrapper">
                 <div className="typing-text">Claude is thinking</div>
                 <div className="typing-indicator">
@@ -145,6 +145,12 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
                   <span></span>
                   <span></span>
                 </div>
+              </div>
+            )}
+            {isStreaming && message.retryStatus && (
+              <div className="retry-indicator">
+                <span className="icon" style={{ fontSize: '16px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                <span>{message.retryStatus}</span>
               </div>
             )}
             {message.citations && message.citations.length > 0 && (

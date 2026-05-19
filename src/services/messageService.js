@@ -123,6 +123,8 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
 
               if (parsed.type === 'chunk') {
                 yield { type: 'chunk', text: parsed.text };
+              } else if (parsed.type === 'retry') {
+                yield { type: 'retry', attempt: parsed.attempt, reason: parsed.reason };
               } else if (parsed.type === 'done') {
                 finalData = parsed;
               } else if (parsed.type === 'error') {

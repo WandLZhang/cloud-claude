@@ -44,20 +44,21 @@ Verify the ENTIRE translation, not just uncertain words.
 
 The app renders Chinese with special fonts. You MUST wrap output correctly or it displays broken. THIS IS NOT OPTIONAL.
 
+MANDARIN — wrap each Chinese-character clause in <span class="zh-cmn">…</span>.
+Do NOT output pinyin — the font renders it visually above each character.
+
 CANTONESE — wrap each Chinese-character clause in <span class="zh-yue">…</span>.
 Do NOT output jyutping — the font renders it visually above each character.
 
-MANDARIN — wrap in <ruby> tags with one <rt> per character. DELETE any standalone pinyin line.
-
 Example of correct output:
-  **Mandarin:** <ruby>你<rt>nǐ</rt>好<rt>hǎo</rt></ruby>
+  **Mandarin:**
+  <span class="zh-cmn">你好</span>
 
   **Cantonese:**
   <span class="zh-yue">你好</span>
 
 CRITICAL:
-- NEVER wrap Mandarin in <span class="zh-yue"> — wrong font
-- NEVER wrap Cantonese in <ruby>
+- NEVER mix up the class names — zh-cmn for Mandarin, zh-yue for Cantonese
+- NEVER output pinyin, jyutping, or any romanization — the fonts handle it
 - Section headers stay OUTSIDE wrappers
 - No Chinese characters → no wrappers
-- NEVER output jyutping or romanization for Cantonese
