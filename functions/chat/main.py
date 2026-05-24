@@ -20,7 +20,7 @@ MODEL_FAST = "claude-sonnet-4-6"
 
 # Max output tokens per model (Opus supports up to 128K, Sonnet stays at 8K for speed)
 MAX_TOKENS_OPUS = 128000
-MAX_TOKENS_SONNET = 8192
+MAX_TOKENS_SONNET = 64000
 
 client = AnthropicVertex(region=LOCATION, project_id=PROJECT_ID)
 
@@ -595,54 +595,102 @@ def chat(request):
                             print(f"{label} usage: {json.dumps(u)} stop_reason={sr} text_len={len(text)}")
                             return text, sr, u
 
-                    # Refusal-aware retry chain:
-                    #   1. Opus 4.7 adaptive thinking (already done above)
-                    #   2. Opus 4.6, no thinking, full context
-                    #   3. Sonnet 4.6, no thinking, minimal context
+                    # Refusal-aware retry chain (adapts based on initial config):
+                    #   If thinking was OFF (e.g. Explain template):
+                    #     retry 1: same model + add web search (no thinking)
+                    #     retry 2: Sonnet, no thinking, no web
+                    #   If thinking was ON (default):
+                    #     retry 1: Opus 4.6 + adaptive thinking
+                    #     retry 2: Sonnet, no thinking, minimal context
                     needs_retry = (stop_reason == 'refusal') or (not full_response.strip() and not disable_thinking)
                     if needs_retry:
-                        yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': 'claude-opus-4-6', 'reason': 'Content filter triggered — retrying with a different model'})}\n\n"
                         try:
-                            # Retry 1: Opus 4.6 with adaptive thinking, full context
-                            retry_opts = dict(message_options)
-                            retry_opts['model'] = 'claude-opus-4-6'
-                            retry_opts['thinking'] = {'type': 'adaptive'}
-                            retry_opts.pop('output_config', None)
-                            print(f"Refusal/empty-text — retry 1 (Opus 4.6, adaptive thinking, full context)")
-                            text2, stop2, usage2 = run_attempt(retry_opts, "Retry 1 (Opus 4.6)")
-                            done_payload['retry_used'] = True
-                            done_payload['retry_usage'] = usage2
-                            done_payload['retry_stop_reason'] = stop2
-                            done_payload['retry_model'] = 'claude-opus-4-6'
+                            if disable_thinking:
+                                # Path A: thinking-off retry chain
+                                # Retry 1: same model, add web search
+                                retry1_opts = dict(message_options)
+                                retry1_opts.pop('thinking', None)
+                                retry1_opts.pop('output_config', None)
+                                if 'tools' not in retry1_opts:
+                                    retry1_opts['tools'] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
+                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': model, 'reason': 'Content filter triggered — retrying with web search'})}\n\n"
+                                print(f"Refusal/empty — retry 1 (same model {model}, no thinking, + web search)")
+                                text2, stop2, usage2 = run_attempt(retry1_opts, f"Retry 1 ({model} + web)")
 
-                            if stop2 == 'refusal':
-                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 2, 'model': MODEL_FAST, 'reason': 'Still blocked — trying a faster model'})}\n\n"
-                                # Retry 2: Sonnet 4.6, no thinking, minimal context
-                                minimal_msgs = []
-                                if all_messages:
-                                    if all_messages[0].get('role') == 'user':
-                                        minimal_msgs.append(all_messages[0])
-                                    if len(all_messages) > 1:
-                                        minimal_msgs.append(all_messages[-1])
-                                sonnet_opts = dict(retry_opts)
-                                sonnet_opts['model'] = MODEL_FAST
-                                sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
-                                sonnet_opts['messages'] = minimal_msgs
-                                print(f"Retry 1 also refused — retry 2 (Sonnet 4.6, minimal context: {len(minimal_msgs)} msgs)")
-                                text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
-                                done_payload['retry2_usage'] = usage3
-                                done_payload['retry2_stop_reason'] = stop3
-                                done_payload['retry2_model'] = MODEL_FAST
+                                done_payload['retry_used'] = True
+                                done_payload['retry_usage'] = usage2
+                                done_payload['retry_stop_reason'] = stop2
+                                done_payload['retry_model'] = model
 
-                                if stop3 == 'refusal':
-                                    full_response = ("I wasn't able to process this image. "
-                                                     "It may have triggered a content filter. "
-                                                     "Try uploading a different photo, or start a new chat.")
-                                    done_payload['gave_up'] = True
+                                if stop2 == 'refusal':
+                                    # Retry 2: Sonnet, no thinking, no web
+                                    yield f"data: {json.dumps({'type': 'retry', 'attempt': 2, 'model': MODEL_FAST, 'reason': 'Still blocked — trying Sonnet'})}\n\n"
+                                    sonnet_opts = dict(message_options)
+                                    sonnet_opts['model'] = MODEL_FAST
+                                    sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
+                                    sonnet_opts.pop('thinking', None)
+                                    sonnet_opts.pop('output_config', None)
+                                    sonnet_opts.pop('tools', None)
+                                    print(f"Retry 1 also refused — retry 2 (Sonnet, no thinking, no web)")
+                                    text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
+                                    done_payload['retry2_usage'] = usage3
+                                    done_payload['retry2_stop_reason'] = stop3
+                                    done_payload['retry2_model'] = MODEL_FAST
+
+                                    if stop3 == 'refusal':
+                                        full_response = ("I wasn't able to process this image. "
+                                                         "It may have triggered a content filter. "
+                                                         "Try uploading a different photo, or start a new chat.")
+                                        done_payload['gave_up'] = True
+                                    else:
+                                        full_response = text3
                                 else:
-                                    full_response = text3
+                                    full_response = text2
                             else:
-                                full_response = text2
+                                # Path B: thinking-on retry chain (original)
+                                # Retry 1: Opus 4.6 with adaptive thinking
+                                retry_opts = dict(message_options)
+                                retry_opts['model'] = 'claude-opus-4-6'
+                                retry_opts['thinking'] = {'type': 'adaptive'}
+                                retry_opts.pop('output_config', None)
+                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': 'claude-opus-4-6', 'reason': 'Content filter triggered — retrying with a different model'})}\n\n"
+                                print(f"Refusal/empty — retry 1 (Opus 4.6, adaptive thinking, full context)")
+                                text2, stop2, usage2 = run_attempt(retry_opts, "Retry 1 (Opus 4.6)")
+
+                                done_payload['retry_used'] = True
+                                done_payload['retry_usage'] = usage2
+                                done_payload['retry_stop_reason'] = stop2
+                                done_payload['retry_model'] = 'claude-opus-4-6'
+
+                                if stop2 == 'refusal':
+                                    # Retry 2: Sonnet, no thinking, minimal context
+                                    yield f"data: {json.dumps({'type': 'retry', 'attempt': 2, 'model': MODEL_FAST, 'reason': 'Still blocked — trying a faster model'})}\n\n"
+                                    minimal_msgs = []
+                                    if all_messages:
+                                        if all_messages[0].get('role') == 'user':
+                                            minimal_msgs.append(all_messages[0])
+                                        if len(all_messages) > 1:
+                                            minimal_msgs.append(all_messages[-1])
+                                    sonnet_opts = dict(retry_opts)
+                                    sonnet_opts['model'] = MODEL_FAST
+                                    sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
+                                    sonnet_opts['messages'] = minimal_msgs
+                                    sonnet_opts.pop('thinking', None)
+                                    print(f"Retry 1 also refused — retry 2 (Sonnet, minimal context: {len(minimal_msgs)} msgs)")
+                                    text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
+                                    done_payload['retry2_usage'] = usage3
+                                    done_payload['retry2_stop_reason'] = stop3
+                                    done_payload['retry2_model'] = MODEL_FAST
+
+                                    if stop3 == 'refusal':
+                                        full_response = ("I wasn't able to process this image. "
+                                                         "It may have triggered a content filter. "
+                                                         "Try uploading a different photo, or start a new chat.")
+                                        done_payload['gave_up'] = True
+                                    else:
+                                        full_response = text3
+                                else:
+                                    full_response = text2
 
                             done_payload['content'] = full_response
                         except Exception as retry_err:

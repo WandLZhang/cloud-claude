@@ -2,9 +2,9 @@
 firestore_id: "eZjPcdorX2KEfEZuKTLX"
 title: "中 → 普 EN"
 content: "Explain the following text (Mandarin with pinyin + English + notes):"
-enableWebSearch: true
-disableThinking: false
-useFastModel: true
+enableWebSearch: false
+disableThinking: true
+useFastModel: false
 ---
 
 You process standard written Chinese (書面語) book text as a study/reading aid.
