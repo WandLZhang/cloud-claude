@@ -217,6 +217,21 @@ export const toggleChatStar = async (userId, chatId, isStarred) => {
   }
 };
 
+// Bump a conversation to the top of the history when it is OPENED (not just when
+// it receives a message). The chat list is ordered by `updatedAt desc`, so
+// writing a fresh serverTimestamp re-sorts it. Fire-and-forget: errors are
+// logged, never thrown, so a failed write can never block navigation.
+export const touchChatOpened = async (userId, chatId) => {
+  try {
+    console.log('[touchChatOpened] bumping chat to top of history', { userId, chatId });
+    await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    console.error('[touchChatOpened] failed to bump chat', { userId, chatId, error });
+  }
+};
+
 export const getStarredChats = async (userId) => {
   try {
     const chatsRef = collection(db, 'chats', userId, 'conversations');
