@@ -234,10 +234,10 @@ with:
       const targetId = result.messageId;
 ```
 
-- [ ] **Step 4: Verify it compiles (warnings are errors under CI)**
+- [ ] **Step 4: Verify it compiles**
 
-Run: `cd /home/user/Projects/personal/cloud-claude && CI=true npm run build`
-Expected: `Compiled successfully.` and exit code 0. (If an unused-import or other lint warning appears, CI mode fails the build — fix before continuing.)
+Run: `cd /home/user/Projects/personal/cloud-claude && CI=false npm run build`
+Expected: `The build folder is ready to be deployed.` and exit code 0. Use `CI=false` to match the repo's own `deploy` script — this repo has pre-existing lint warnings (e.g. `hasNewMessages` unused, an `exhaustive-deps` note, `ExportMenu.js`/`MessageItem.js`) that `CI=true` would turn into errors even though they are unrelated to this change. Confirm the eslint output lists no NEW warning naming your added `touchChatOpened` import or calls.
 
 - [ ] **Step 5: Manual end-to-end verification against the real app**
 
@@ -269,6 +269,17 @@ git commit -m "feat: move opened conversation to top of history"
 ### Task 3 (OPTIONAL): Automated end-to-end test (real Firestore, no LLM calls)
 
 Adds a deterministic end-to-end check using the repo's existing patterns: a Python Firebase-Admin seed script plus a standalone Playwright script. Runs in the app's built-in test mode (`REACT_APP_TEST_MODE=true`, uid `test-user`) against real Firestore. Skip this task if the manual check in Task 2 is sufficient for you.
+
+> **STATUS: not viable in this environment — do not implement as written.**
+> `firestore.rules` requires `request.auth != null && request.auth.uid == userId`.
+> The app's test mode (`App.js`) sets a fake user object but never signs in to
+> Firebase Auth, so `request.auth` is null and every chat read/write is denied.
+> A Playwright run in test mode would never load the seeded chats. Real
+> automation would need the Firebase Auth + Firestore emulators (the app has no
+> emulator wiring today) or an automated Google OAuth sign-in. Both are out of
+> scope for this change. Verification therefore relies on Task 2's unit test,
+> the clean build, and the manual signed-in check. This task is retained only as
+> a record of the approach and its blocker.
 
 **Files:**
 - Create: `test_scripts/seed_test_user_chats.py`

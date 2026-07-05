@@ -7,7 +7,7 @@ import HomePage from '../Home/HomePage';
 import StarredChats from './StarredChats';
 import { useChat } from '../../hooks/useChat';
 import { useFirestore } from '../../hooks/useFirestore';
-import { updateMessage, deleteMessage } from '../../services/firebase';
+import { updateMessage, deleteMessage, touchChatOpened } from '../../services/firebase';
 import './ChatInterface.css';
 
 function ChatInterface({ user, onThemeToggle, theme }) {
@@ -225,6 +225,10 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   };
 
   const handleSelectChat = (chat) => {
+    // Opening a chat bumps it to the top of the history. Fire-and-forget: the
+    // live subscribeToUserChats listener re-sorts locally at once; a failed
+    // write must not delay navigation.
+    touchChatOpened(user.uid, chat.id);
     selectChat(chat);
     switchChat(chat.id);
     setSidebarOpen(false);
@@ -255,6 +259,8 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     // First, select the chat
     const chat = userChats.find(c => c.id === result.chatId);
     if (chat) {
+      // Opening from a search result also bumps the chat to the top of history.
+      touchChatOpened(user.uid, result.chatId);
       // Store the target message ID
       const targetId = result.messageId;
       
