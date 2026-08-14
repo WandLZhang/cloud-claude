@@ -133,16 +133,20 @@ export const addMessage = async (userId, chatId, message) => {
   }
 };
 
-export const updateMessage = async (userId, chatId, messageId, updates) => {
+// `touchChat: false` skips the parent conversation write. Streaming used to fire TWO writes per
+// SSE chunk — the message doc and the chat doc — which put hundreds of writes/second on a single
+// document (Firestore sustains about one). Mid-stream chunks now write the message only; the chat
+// doc's lastMessage/updatedAt is refreshed once when the turn finishes.
+export const updateMessage = async (userId, chatId, messageId, updates, { touchChat = true } = {}) => {
   try {
     // Update message in subcollection
     await updateDoc(
-      doc(db, 'chats', userId, 'conversations', chatId, 'messages', messageId), 
+      doc(db, 'chats', userId, 'conversations', chatId, 'messages', messageId),
       updates
     );
-    
+
     // If content is being updated, also update the chat's last message
-    if (updates.content !== undefined) {
+    if (touchChat && updates.content !== undefined) {
       await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
         lastMessage: updates.content,
         updatedAt: serverTimestamp()

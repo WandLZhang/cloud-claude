@@ -8,6 +8,42 @@ import {
 } from '../services/firebase';
 import { streamMessageToClaud } from '../services/messageService';
 
+// Mid-stream Firestore writes are throttled to this interval. Every chunk used to be written
+// immediately, which is far past what a single document sustains.
+const CHUNK_WRITE_MS = 700;
+
+/**
+ * Put every assistant reply directly under the user message it answers.
+ *
+ * Timestamp order alone is not enough. Before commit f0eb3d4 the final update overwrote the
+ * assistant's timestamp with its COMPLETION time, so shooting the next book page before the
+ * previous translation finished left the reply sorted after the next photo — which is why the
+ * starred story chats read out of order and the text under a picture is not the text in it.
+ * Assistant messages now carry `replyTo`; anchor on that and the display order is correct no
+ * matter what the timestamps say. Messages without `replyTo` (older chats) keep their timestamp
+ * position, so nothing regresses.
+ */
+function anchorReplies(sorted) {
+  const userIds = new Set(sorted.filter((m) => m.role === 'user').map((m) => m.id));
+  const childrenOf = new Map();
+  for (const m of sorted) {
+    if (m.replyTo && userIds.has(m.replyTo)) {
+      if (!childrenOf.has(m.replyTo)) childrenOf.set(m.replyTo, []);
+      childrenOf.get(m.replyTo).push(m);
+    }
+  }
+  if (childrenOf.size === 0) return sorted;
+
+  const anchored = [];
+  for (const m of sorted) {
+    if (m.replyTo && userIds.has(m.replyTo)) continue;   // emitted under its parent instead
+    anchored.push(m);
+    const kids = childrenOf.get(m.id);
+    if (kids) anchored.push(...kids);
+  }
+  return anchored;
+}
+
 export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -64,14 +100,15 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
         
         // Debounce rapid updates to prevent rendering issues
         updateTimeoutId = setTimeout(() => {
-          // Always sort messages by timestamp to ensure correct order
-          const sortedMessages = [...newMessages].sort((a, b) => {
+          // Sort by timestamp, then pull every reply under the message it answers.
+          const byTime = [...newMessages].sort((a, b) => {
             // Handle both Date objects and Firestore timestamps
             const timeA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(a.timestamp);
             const timeB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(b.timestamp);
             return timeA - timeB;
           });
-          
+          const sortedMessages = anchorReplies(byTime);
+
           // Check if any message just finished streaming
           const wasStreaming = messagesRef.current.some(msg => msg.isStreaming);
           const nowNotStreaming = !sortedMessages.some(msg => msg.isStreaming);
@@ -97,6 +134,65 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
       }
     };
   }, [userId, currentChatId]);
+
+  /**
+   * Create the assistant placeholder, stream into it, and finalise it.
+   *
+   * One implementation for both the new-chat and existing-chat paths — they used to be copy-pasted,
+   * which is how the timestamp-overwrite bug survived in one branch after being fixed in the other.
+   *
+   * `replyTo` binds the reply to the user message it answers, so display order no longer depends on
+   * the timestamps lining up. The placeholder's timestamp is never overwritten.
+   */
+  const streamAssistantTurn = useCallback(async ({
+    chatId, userMessageId, history, content, image, config,
+  }) => {
+    const messageId = await addMessage(userId, chatId, {
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isStreaming: true,
+      replyTo: userMessageId,
+    });
+
+    let fullContent = '';
+    let finalResponse = null;
+    let lastWrite = 0;
+
+    const stream = streamMessageToClaud(history, content || '', image, config);
+
+    for await (const data of stream) {
+      if (data.type === 'chunk') {
+        fullContent += data.text;
+        // Throttled: the reader only needs to see the text growing, not every token.
+        if (Date.now() - lastWrite >= CHUNK_WRITE_MS) {
+          lastWrite = Date.now();
+          await updateMessage(userId, chatId, messageId,
+            { content: fullContent, isStreaming: true }, { touchChat: false });
+        }
+      } else if (data.type === 'retry') {
+        lastWrite = Date.now();
+        await updateMessage(userId, chatId, messageId,
+          { content: fullContent, isStreaming: true, retryStatus: data.reason }, { touchChat: false });
+      } else if (data.type === 'done') {
+        finalResponse = data;
+      }
+    }
+
+    // Final update — keep the placeholder's original timestamp; only this write touches the
+    // parent chat doc's lastMessage/updatedAt.
+    const finalUpdate = {
+      content: finalResponse?.content || fullContent,
+      isStreaming: false,
+      retryStatus: null,
+    };
+    if (finalResponse?.thinking) finalUpdate.thinking = finalResponse.thinking;
+    if (finalResponse?.citations) finalUpdate.citations = finalResponse.citations;
+    if (finalResponse?.model) finalUpdate.model = finalResponse.model;
+
+    await updateMessage(userId, chatId, messageId, finalUpdate);
+    return messageId;
+  }, [userId]);
 
   const sendMessage = useCallback(async (content, image, newChatConfig = {}) => {
     if (!userId || (!content.trim() && !image && !newChatConfig.document)) return;
@@ -173,136 +269,34 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
         effectiveConfig.enableWebSearch = true;
       }
 
-      await addMessage(userId, chatId, userMessage);
+      const userMessageId = await addMessage(userId, chatId, userMessage);
+
+      const turn = {
+        chatId,
+        userMessageId,
+        history: currentMessages,
+        content,
+        image: userMessage.image,
+        config: effectiveConfig,
+      };
 
       // If this is a new chat, return immediately so the UI can navigate
       if (isNewChat) {
         // Stream Claude's response asynchronously (don't wait for it)
-        (async () => {
-          try {
-            // Add placeholder message
-            const assistantMessage = {
-              role: 'assistant',
-              content: '',
-              timestamp: new Date(),
-              isStreaming: true
-            };
-
-            const messageId = await addMessage(userId, chatId, assistantMessage);
-            
-            let fullContent = '';
-            let finalResponse = null;
-
-            // Stream the response - use current messages from ref, pass config
-            const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image, effectiveConfig);
-            
-            for await (const data of stream) {
-              if (data.type === 'chunk') {
-                fullContent += data.text;
-                await updateMessage(userId, chatId, messageId, {
-                  content: fullContent,
-                  isStreaming: true
-                });
-              } else if (data.type === 'retry') {
-                await updateMessage(userId, chatId, messageId, {
-                  content: fullContent,
-                  isStreaming: true,
-                  retryStatus: data.reason
-                });
-              } else if (data.type === 'done') {
-                finalResponse = data;
-              }
-            }
-
-            // Final update — keep placeholder's original timestamp for correct sort order
-            const finalUpdate = {
-              content: finalResponse?.content || fullContent,
-              isStreaming: false,
-              retryStatus: null,
-            };
-
-            if (finalResponse?.thinking) {
-              finalUpdate.thinking = finalResponse.thinking;
-            }
-            if (finalResponse?.citations) {
-              finalUpdate.citations = finalResponse.citations;
-            }
-            if (finalResponse?.model) {
-              finalUpdate.model = finalResponse.model;
-            }
-
-            await updateMessage(userId, chatId, messageId, finalUpdate);
-          } catch (error) {
-            console.error('Error getting Claude response:', error);
-          }
-        })();
-
-        // Return immediately for navigation
+        streamAssistantTurn(turn).catch((error) => {
+          console.error('Error getting Claude response:', error);
+        });
         return { chatId, isNewChat };
       }
 
-      // For existing chats, stream Claude's response
-      // First add a placeholder message
-      const assistantMessage = {
-        role: 'assistant',
-        content: '',
-        timestamp: new Date(),
-        isStreaming: true
-      };
-
-      const messageId = await addMessage(userId, chatId, assistantMessage);
-      
-      let fullContent = '';
-      let finalResponse = null;
-
-      // Stream the response - use current messages from ref, pass config
-      const stream = streamMessageToClaud(currentMessages, content || '', userMessage.image, effectiveConfig);
-      
-      for await (const data of stream) {
-        if (data.type === 'chunk') {
-          fullContent += data.text;
-          await updateMessage(userId, chatId, messageId, {
-            content: fullContent,
-            isStreaming: true
-          });
-        } else if (data.type === 'retry') {
-          await updateMessage(userId, chatId, messageId, {
-            content: fullContent,
-            isStreaming: true,
-            retryStatus: data.reason
-          });
-        } else if (data.type === 'done') {
-          finalResponse = data;
-        }
-      }
-
-      // Final update — keep the placeholder's original timestamp so it always
-      // sorts before the next user message (critical for batch mode ordering).
-      const finalUpdate = {
-        content: finalResponse?.content || fullContent,
-        isStreaming: false,
-        retryStatus: null,
-      };
-
-      if (finalResponse?.thinking) {
-        finalUpdate.thinking = finalResponse.thinking;
-      }
-      if (finalResponse?.citations) {
-        finalUpdate.citations = finalResponse.citations;
-      }
-      if (finalResponse?.model) {
-        finalUpdate.model = finalResponse.model;
-      }
-
-      await updateMessage(userId, chatId, messageId, finalUpdate);
-
+      await streamAssistantTurn(turn);
       return { chatId, isNewChat };
 
     } catch (error) {
       console.error('Error sending message:', error);
       throw error;
     }
-  }, [userId, currentChatId]);
+  }, [userId, currentChatId, streamAssistantTurn]);
 
   const switchChat = useCallback((chatId) => {
     if (chatId !== currentChatId) {

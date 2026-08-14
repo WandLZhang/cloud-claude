@@ -1,1 +1,5 @@
-anthropic[vertex]
+# Ops scripts (run locally, never deployed). rebuild_book_chats.py needs both provider SDKs
+# because the benchmark field for book pages spans Claude and Gemini.
+anthropic[vertex]>=0.118.0
+google-genai>=2.13.0
+firebase-admin>=6.0.0

@@ -135,6 +135,25 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     }
   };
 
+  // sendMessage builds the model's history from useChat's `messagesRef`, which is fed by the
+  // Firestore snapshot behind a 50 ms timeout plus a 50 ms debounce. Releasing the next batch item
+  // the instant the previous one resolves means turn N+1 is built on history that does not yet
+  // contain turn N. Wait for the finished reply to actually land in `messages` first.
+  const messagesRefForBatch = useRef(messages);
+  useEffect(() => { messagesRefForBatch.current = messages; }, [messages]);
+
+  const waitForSettledReply = (countBefore, timeoutMs = 15000) => new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      const now = messagesRefForBatch.current;
+      const grew = now.length > countBefore;
+      const quiet = !now.some((m) => m.isStreaming);
+      if ((grew && quiet) || Date.now() - started > timeoutMs) return resolve();
+      setTimeout(tick, 120);
+    };
+    tick();
+  });
+
   const handleBatchRelease = async (items) => {
     setError('');
     setIsThinking(true);
@@ -142,6 +161,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     try {
       for (const item of items) {
         try {
+          const countBefore = messagesRefForBatch.current.length;
           // Reconstruct File from data URL if needed (sessionStorage path)
           let imageToSend = item.image;
           if (imageToSend && imageToSend.url && !imageToSend.file) {
@@ -156,6 +176,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
             }
           }
           await sendMessage(item.content, imageToSend, item.extraOptions);
+          await waitForSettledReply(countBefore);
           processed += 1;
         } catch (err) {
           console.error(`Batch item ${processed + 1}/${items.length} failed:`, err);

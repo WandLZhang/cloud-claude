@@ -15,8 +15,16 @@ if not firebase_admin._apps:
 # Initialize the Anthropic client
 LOCATION = "global"
 PROJECT_ID = "wz-cloud-claude"
-MODEL_DEFAULT = "claude-opus-4-7"
+# Winner of the book-page-translation task in WandLZhang/language-benchmarks (24 real page photos,
+# 2 judges, ranked on quality alone because pages are translated once and read many times):
+#   claude-opus-5   fidelity 4.85  colloquial 4.49  vividness 3.99  -> 4.44
+#   claude-opus-4-8 4.79 / 4.47 / 3.78                              -> 4.35
+#   claude-opus-4-7 4.88 / 4.47 / 3.54                              -> 4.30   <- previous default
+# opus-5's margin over the old default is almost entirely VIVIDNESS — the storybook liveliness a
+# parent reads aloud — which is the axis that matters for these books.
+MODEL_DEFAULT = "claude-opus-5"
 MODEL_FAST = "claude-sonnet-4-6"
+MODEL_RETRY = "claude-opus-4-8"   # second opinion when the default refuses or comes back empty
 
 # Max output tokens per model (Opus supports up to 128K, Sonnet stays at 8K for speed)
 MAX_TOKENS_OPUS = 128000
@@ -573,6 +581,16 @@ def chat(request):
                     if web_search_queries:
                         done_payload['web_search_queries'] = web_search_queries
                         print(f"Search queries used: {web_search_queries}")
+                    # Make the silent no-op visible. The hosted web_search tool fires far less often
+                    # on Vertex than the prompts assume: across all 547 assistant messages in the
+                    # starred book chats, ZERO carry citations, even though every one of those chats
+                    # has enableWebSearch set. If this line dominates the logs, the "verify against
+                    # words.hk" instruction in the prompts is decorative and should either be
+                    # dropped or replaced with a forced retriever (see language-benchmarks
+                    # engine/webfetch.py, verified 100% firing).
+                    if enable_web_search and not web_search_queries:
+                        print("Web search was ENABLED but the model never invoked it "
+                              "(0 queries, 0 citations)")
 
                     stop_reason = getattr(final_message, 'stop_reason', None)
                     print(f"Usage: {json.dumps(usage)} stop_reason={stop_reason} text_len={len(full_response)} thinking_len={len(thinking_content)}")
@@ -648,19 +666,19 @@ def chat(request):
                                     full_response = text2
                             else:
                                 # Path B: thinking-on retry chain (original)
-                                # Retry 1: Opus 4.6 with adaptive thinking
+                                # Retry 1: the runner-up model with adaptive thinking
                                 retry_opts = dict(message_options)
-                                retry_opts['model'] = 'claude-opus-4-6'
+                                retry_opts['model'] = MODEL_RETRY
                                 retry_opts['thinking'] = {'type': 'adaptive'}
                                 retry_opts.pop('output_config', None)
-                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': 'claude-opus-4-6', 'reason': 'Content filter triggered — retrying with a different model'})}\n\n"
-                                print(f"Refusal/empty — retry 1 (Opus 4.6, adaptive thinking, full context)")
-                                text2, stop2, usage2 = run_attempt(retry_opts, "Retry 1 (Opus 4.6)")
+                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': MODEL_RETRY, 'reason': 'Content filter triggered — retrying with a different model'})}\n\n"
+                                print(f"Refusal/empty — retry 1 ({MODEL_RETRY}, adaptive thinking, full context)")
+                                text2, stop2, usage2 = run_attempt(retry_opts, f"Retry 1 ({MODEL_RETRY})")
 
                                 done_payload['retry_used'] = True
                                 done_payload['retry_usage'] = usage2
                                 done_payload['retry_stop_reason'] = stop2
-                                done_payload['retry_model'] = 'claude-opus-4-6'
+                                done_payload['retry_model'] = MODEL_RETRY
 
                                 if stop2 == 'refusal':
                                     # Retry 2: Sonnet, no thinking, minimal context

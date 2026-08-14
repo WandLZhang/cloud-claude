@@ -3,6 +3,19 @@ const CLOUD_FUNCTION_URL = process.env.REACT_APP_CLOUD_FUNCTION_URL;
 const DEFAULT_SYSTEM_PROMPT = `You are Claude, a helpful AI assistant. Engage in natural conversation,
 be helpful, harmless, and honest. Provide thoughtful and detailed responses when appropriate.`;
 
+// Appended when a turn is a bare photo. Photographing book pages means every turn after the first
+// carried an EMPTY user message, so in a 70-page chat the only instruction the model ever saw was
+// the first turn's one-liner — which is how it drifted into continuing a story it recognised
+// instead of translating the page in front of it.
+const IMAGE_TURN_HINT = 'The text is in the attached photo. Work only from what is on THIS image.';
+
+/** Reuse the chat's opening instruction (the saved-prompt text) for a photo-only turn. */
+function instructionForImageTurn(previousMessages) {
+  const opener = previousMessages.find((m) => m.role === 'user' && (m.content || '').trim());
+  const lead = opener ? opener.content.trim() : '';
+  return lead ? `${lead}\n\n${IMAGE_TURN_HINT}` : IMAGE_TURN_HINT;
+}
+
 export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}) {
   try {
     // Prepare messages array for Claude.
@@ -24,10 +37,16 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
       return out;
     });
 
-    // Add the new message
+    // Add the new message. A photo with no typed text gets the chat's opening instruction restated
+    // — the Firestore message stays empty so the UI still shows just the photo.
+    const outgoing = (newContent || '').trim();
+    const turnText = (!outgoing && image) ? instructionForImageTurn(previousMessages) : (newContent || '');
+    if (!outgoing && image) {
+      console.log('[messageService] Photo-only turn — restating instruction:', turnText);
+    }
     messages.push({
       role: 'user',
-      content: newContent || ''
+      content: turnText
     });
 
     // Prepare request payload

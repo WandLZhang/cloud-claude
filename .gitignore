@@ -50,3 +50,6 @@ Thumbs.db
 public/fonts/*.ttf
 public/fonts/*.otf
 .claude/settings.local.json
+
+# Firestore chat backups written by test_scripts/rebuild_book_chats.py — private chat content.
+test_scripts/backups/
