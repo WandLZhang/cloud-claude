@@ -28,6 +28,13 @@ deploy_function() {
 
   cd "$SOURCE_DIR"
 
+  # book_qa is a nightly batch invoked only by Cloud Scheduler with an OIDC token, so it must NOT
+  # be public and must not hold a warm instance. Everything else is a user-facing endpoint.
+  local ACCESS=(--allow-unauthenticated) MIN=1 MEM=1Gi
+  if [ "$FUNCTION_NAME" = "book_qa" ]; then
+    ACCESS=(--no-allow-unauthenticated); MIN=0; MEM=2Gi
+  fi
+
   gcloud functions deploy "$FUNCTION_NAME" \
     --gen2 \
     --runtime=python311 \
@@ -35,12 +42,12 @@ deploy_function() {
     --source=. \
     --entry-point="$FUNCTION_NAME" \
     --trigger-http \
-    --allow-unauthenticated \
+    "${ACCESS[@]}" \
     --project="$PROJECT_ID" \
     --set-env-vars=GOOGLE_CLOUD_PROJECT="$PROJECT_ID" \
     --cpu=1 \
-    --memory=1Gi \
-    --min-instances=1 \
+    --memory="$MEM" \
+    --min-instances="$MIN" \
     --max-instances=100 \
     --timeout=3600s
 
