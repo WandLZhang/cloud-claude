@@ -35,6 +35,8 @@ def main():
     ap.add_argument("--apply", action="store_true", help="write to Firestore (default: dry run)")
     ap.add_argument("--history-pages", type=int, default=pipeline.HISTORY_PAGES,
                     help="previous pages carried as context (0 = stateless)")
+    ap.add_argument("--strip-asides", action="store_true",
+                    help="delete typed turns + their replies, leaving only photo -> translation")
     ap.add_argument("--delete-surplus", action="store_true",
                     help="delete assistant docs with no page to answer instead of flagging them")
     args = ap.parse_args()
@@ -67,6 +69,18 @@ def main():
     mode = "APPLY" if args.apply else "DRY RUN"
     print(f"\n{mode} · model={args.model} · {len(chat_ids)} chat(s) · workers={args.workers} · "
           f"backups -> {backup_dir}\n")
+
+    if args.strip_asides:
+        tot_p = tot_d = 0
+        for cid in chat_ids:
+            r = pipeline.strip_asides(db, cid, backup_dir, args.apply, log=print)
+            if r.get("skipped"):
+                continue
+            print(f"[{cid[:10]}] {r['title'][:32]:32} photos={r['photos']:3d} deleted={r['deleted']}")
+            tot_p += r["photos"]; tot_d += r["deleted"]
+        print(f"\n{'APPLIED' if args.apply else 'DRY RUN'}: {tot_d} message(s) removed, "
+              f"{tot_p} photos intact. Backups in {backup_dir}")
+        return 0
 
     img_cache = {}
     buffers = {}

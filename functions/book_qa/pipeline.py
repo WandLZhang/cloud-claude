@@ -509,6 +509,51 @@ def plan_pages(msgs):
     return pages, text_turns, surplus
 
 
+def strip_asides(db, chat_id, backup_dir, apply, log=print):
+    """Reduce a book chat to nothing but photo -> translation pairs.
+
+    Typed turns accumulate inside a book: the opening instruction, and corrections shouted at an
+    earlier run ("More Cantonese", "System: doesn't match easy childish cadence"). They read as
+    noise in something meant to be a children's book.
+
+    HARD RULE: a message carrying an image is never deleted, and the photo set is compared before
+    and after. Everything is dumped to backups/ first, because several of those corrections hold
+    real content — a vocabulary answer about "vain" in 白雪公主, three rewritten 兒歌 in 好听儿歌.
+    """
+    ref = db.collection("chats").document(USER_ID).collection("conversations").document(chat_id)
+    chat_doc = ref.get().to_dict() or {}
+    msgs = [(m, m.to_dict() or {}) for m in ref.collection("messages").order_by("timestamp").stream()]
+    photos_before = sorted(m.id for m, d in msgs if d.get("role") == "user" and d.get("image"))
+    if len(photos_before) < 3:
+        return {"chat_id": chat_id, "skipped": "not a book"}
+
+    backup_chat(ref, chat_doc, msgs, backup_dir)
+    doomed = []
+    for snap, d in msgs:
+        if d.get("role") != "user" or d.get("image"):
+            continue
+        doomed.append((snap, "typed turn", (d.get("content") or "")[:58]))
+        doomed += [(s2, "its reply", (d2.get("content") or "")[:58])
+                   for s2, d2 in msgs
+                   if d2.get("role") == "assistant" and d2.get("replyTo") == snap.id]
+
+    for snap, kind, preview in doomed:
+        if (snap.to_dict() or {}).get("image"):     # belt and braces: never lose a page photo
+            raise RuntimeError(f"refusing to delete {snap.id}: it carries an image")
+        log(f"  delete {kind:11} {preview!r}".replace("\n", " "))
+        if apply:
+            snap.reference.delete()
+
+    if apply:
+        after = sorted(m.id for m in ref.collection("messages").select(["image"]).stream()
+                       if (m.to_dict() or {}).get("image"))
+        if after != photos_before:
+            raise RuntimeError(f"{chat_id}: photos changed {len(photos_before)} -> {len(after)}")
+        log(f"  verified: all {len(after)} photos intact")
+    return {"chat_id": chat_id, "title": chat_doc.get("title", ""),
+            "photos": len(photos_before), "deleted": len(doomed)}
+
+
 def process_chat(db, chat_id, templates, model_id, backup_dir, apply, img_cache,
                  delete_surplus=False, history_pages=HISTORY_PAGES, log=print):
     chat_ref = db.collection("chats").document(USER_ID).collection("conversations").document(chat_id)
