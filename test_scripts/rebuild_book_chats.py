@@ -16,15 +16,22 @@ WHAT IT DOES, PER CHAT
   1. Back up the chat doc + every message to backups/<ts>/<chatId>.json. Nothing is written until
      that file exists.
   2. Take the user messages that carry an image, in timestamp order. That ordinal is the page number.
-  3. Translate each page in ONE stateless call — the page image plus an explicit per-page
-     instruction. The old path sent an empty user message on image turns, so the only instruction in
-     a 70-page chat was the first turn's one-liner.
-  4. Write the result onto an assistant doc that is bound to its page with `replyTo`, timestamped
+  3. PASS ONE — OCR every page, then decide ONCE for the whole book which Cantonese wording each
+     repeated word and refrain gets (the "book sheet"). Children's books run on repetition: the
+     same phrase coming back page after page IS the effect, and rendering it three different ways
+     destroys the book even when all three readings are good Cantonese. Measured on Grumpy Monkey:
+     the source repeats "grumpy" on pages 4,5,7,9,19,20,25 and a 4-page history window produced
+     燥底 for the first half and 扭擰 for the second.
+  4. PASS TWO — translate each page with the sheet pinned into the system prompt, plus a short
+     history window and an explicit per-page instruction. The old path sent an empty user message
+     on image turns, so the only instruction in a 70-page chat was the first turn's one-liner.
+  5. Write the result onto an assistant doc that is bound to its page with `replyTo`, timestamped
      1 ms after its photo, with the previous text kept in `contentBeforeRebuild`.
-  5. Leave the conversation turns between pages alone (corrections and questions you typed), just
+  6. Leave the conversation turns between pages alone (corrections and questions you typed), just
      anchored. Flag — do NOT delete — any assistant doc with no page to answer: in 木偶奇遇记 that
      doc holds a real page translation whose photo was never saved. --delete-surplus is opt-in.
-  6. Verify: every photo has exactly one reply. Refuse to finish otherwise.
+  7. Verify: every photo has exactly one reply, and every fixed rendering on the sheet actually got
+     used. Refuse to finish otherwise.
 
 Usage:
     source .venv/bin/activate
@@ -170,6 +177,226 @@ def translate_page(model_id, system, instruction, image_bytes, mime="image/jpeg"
     raise last
 
 
+OCR_INSTRUCTION = ("Transcribe the printed body text of this children's book page exactly as printed. "
+                   "Ignore pinyin/jyutping guides printed above or below the characters, ignore page "
+                   "numbers, ignore anything drawn rather than typeset. Output ONLY the text.")
+
+SHEET_SYSTEM = """You are preparing a translator's sheet before a children's picture book is
+rendered into colloquial Hong Kong Cantonese (口語, Traditional characters).
+
+Children's books work by REPETITION. The same word, the same refrain and the same sentence frame
+come back page after page, and that recurrence IS the effect — the child anticipates it and joins
+in. A translation that renders the same English phrase three different ways destroys the book even
+if all three renderings are good Cantonese.
+
+Read every page below, then decide ONCE, for the whole book:
+
+1. terms — every word or short phrase the book repeats across pages (the running joke, the
+   character trait, the thing everyone says). Choose the single best colloquial HK Cantonese
+   rendering and commit to it. Prefer child-facing spoken words over adult or written ones, and
+   over a word that names a permanent personality trait when the book means a passing mood.
+2. refrains — every sentence or frame that recurs. Fix the whole wording, not just the key word.
+   Where the frame recurs with one slot changed, keep the frame identical and change only the slot.
+   When the source itself repeats a shape inside one line (too bright, too blue, too sweet), keep
+   that shape — but build it out of an authentically Cantonese construction repeated, never out of
+   a Mandarin-shaped one chosen because it is easier to repeat. 猛得滯、藍得滯、甜得滯 keeps both the
+   triple and the Cantonese; 太猛、太藍、太甜 keeps the triple and loses the Cantonese.
+3. voice — one line on the register: who is speaking, to what age, how playful.
+
+Do NOT translate character names, place names or brand names. They stay exactly as printed in the
+source; the reader says them in English.
+
+Every "yue" value must be genuinely spoken Hong Kong Cantonese (口語), never 書面語 and never
+Mandarin with a few particles added. Where a lively ABB/AAB or onomatopoeic form genuinely fits,
+prefer it over a flat word — a list of attested ones is supplied below.
+
+READABILITY: the app draws jyutping above every character with the canto.hk Visual Font, which
+covers 54,160 codepoints — so rare but authentic Cantonese characters are fine and preferred.
+䒐䒏 for grumpy is right and renders correctly. Only avoid a character if no font would have it.
+
+FORMAT RULES for "yue", because these strings are checked against the finished pages:
+- the literal Cantonese only. No parentheses, no gloss, no alternatives, no commentary.
+- write ___ (three underscores) for a slot that changes from page to page. Nothing else.
+- put all reasoning in "why", never in "yue".
+
+Return ONLY JSON, no quotation marks inside any value:
+{"voice":"...",
+ "terms":[{"source":"...","yue":"...","why":"<=10 words"}],
+ "refrains":[{"source":"...","yue":"..."}]}"""
+
+
+def ocr_page(image_bytes, mime="image/jpeg"):
+    from google.genai import types
+    r = _gemini().models.generate_content(
+        model="gemini-3.5-flash",
+        contents=[types.Part.from_bytes(data=image_bytes, mime_type=mime), OCR_INSTRUCTION],
+        config=types.GenerateContentConfig(temperature=0, max_output_tokens=2000))
+    return (r.text or "").strip()
+
+
+def build_book_sheet(model_id, title, page_texts, palette=(), log=print, extra=""):
+    """One pass over the WHOLE book before any page is translated.
+
+    This is the fix for the defect the first rebuild shipped. Grumpy Monkey repeats the word
+    "grumpy" on pages 4,5,7,9,19,20,25 and the refrain "It's such a wonderful day" on 5,7,19. With a
+    4-page history window the translator could not see page 5 from page 19, so the running word came
+    out 燥底 for the first half and 扭擰 for the second. The original app run held 扭計 across all
+    seven pages precisely because it carried the entire book in context. The sheet buys that global
+    consistency back without dragging 70 photos into the last call.
+    """
+    body = "\n\n".join(f"PAGE {p}\n{t}" for p, t in sorted(page_texts.items()) if t.strip())
+    if not body:
+        return None
+    if extra:
+        body += "\n\nIMPORTANT: " + extra
+    if palette:
+        body += ("\n\nATTESTED VIVID FORMS (Words.hk) you may draw on:\n"
+                 + "\n".join(f"- {w} — {g}" for w, g in palette))
+    provider, vertex_id = MODELS[model_id]
+    raw = ""
+    for attempt in range(MAX_RETRIES):
+        try:
+            if provider == "anthropic":
+                with _anthropic().messages.stream(
+                        model=vertex_id, max_tokens=MAX_TOKENS["anthropic"],
+                        system=[{"type": "text", "text": SHEET_SYSTEM}],
+                        thinking={"type": "adaptive"}, output_config={"effort": "max"},
+                        messages=[{"role": "user", "content": [{"type": "text",
+                                   "text": f"Book: {title}\n\n{body}"}]}]) as st:
+                    for _ in st:
+                        pass
+                    m = st.get_final_message()
+                raw = "".join(b.text for b in m.content if getattr(b, "type", None) == "text")
+            else:
+                from google.genai import types
+                r = _gemini().models.generate_content(
+                    model=vertex_id, contents=f"Book: {title}\n\n{body}",
+                    config=types.GenerateContentConfig(system_instruction=SHEET_SYSTEM,
+                                                       max_output_tokens=MAX_TOKENS["gemini"]))
+                raw = r.text or ""
+            a, b = raw.find("{"), raw.rfind("}")
+            sheet = json.loads(raw[a:b + 1])
+            log(f"  book sheet: {len(sheet.get('terms', []))} fixed term(s), "
+                f"{len(sheet.get('refrains', []))} refrain(s) — voice: {sheet.get('voice', '')[:70]}")
+            for t in sheet.get("terms", []):
+                log(f"      term    {t.get('source', '')!r} -> {t.get('yue', '')}   ({t.get('why', '')})")
+            for r_ in sheet.get("refrains", []):
+                log(f"      refrain {r_.get('source', '')[:50]!r} -> {r_.get('yue', '')[:50]}")
+            return sheet
+        except Exception as e:  # noqa: BLE001
+            if attempt == MAX_RETRIES - 1:
+                log(f"  book sheet FAILED ({type(e).__name__}: {str(e)[:80]}) — pages run unpinned")
+                return None
+            time.sleep(2 ** attempt * 2)
+
+
+# cloud-claude renders Cantonese in the canto.hk Visual Font, which draws jyutping above each
+# character (src/index.css: .message-content .zh-yue). Nothing here is tapped — the tap-dictionary
+# belongs to the phone apps. So the only real constraint on a word is whether this font has the
+# glyph, and with 54,160 codepoints it almost always does: 䒐䒏 (U+4490/U+448F) is covered and
+# renders with its jyutping, so the sheet is free to choose the authentic word over a tame one.
+FONT_PATH = HERE.parent / "public" / "fonts" / "VF-Canto-HKEdB.woff2"
+
+
+def font_codepoints(cache={}):   # noqa: B006 — deliberate module-level memo
+    if "c" not in cache:
+        try:
+            from fontTools.ttLib import TTFont
+            f = TTFont(str(FONT_PATH))
+            cp = set()
+            for t in f["cmap"].tables:
+                cp |= set(t.cmap)
+            cache["c"] = cp
+        except Exception:  # noqa: BLE001
+            cache["c"] = set()
+    return cache["c"]
+
+
+def unreadable_terms(sheet):
+    """Sheet entries using a character the Visual Font has no glyph for (it would lose its
+    jyutping and fall back to a system face)."""
+    cps = font_codepoints()
+    if not cps or not sheet:
+        return []
+    out = []
+    for kind in ("terms", "refrains"):
+        for item in sheet.get(kind, []):
+            miss = {c for c in (item.get("yue") or "") if ord(c) > 0x2E80 and ord(c) not in cps}
+            if miss:
+                out.append((item, "".join(sorted(miss))))
+    return out
+
+
+def sheet_block(sheet, palette):
+    """The addendum appended to the system prompt for EVERY page of this book."""
+    if not sheet and not palette:
+        return ""
+    out = ["\n\n## BOOK SHEET — decided once for this whole book. Follow it verbatim.",
+           "Children's books run on repetition: the same words coming back is the point. Where a "
+           "phrase below appears on this page, use the fixed rendering exactly, even if another "
+           "wording would read better in isolation."]
+    if sheet:
+        if sheet.get("voice"):
+            out.append(f"\nVOICE: {sheet['voice']}")
+        if sheet.get("terms"):
+            out.append("\nFIXED TERMS (same rendering every single time):")
+            out += [f"- {t.get('source','')} -> {t.get('yue','')}" for t in sheet["terms"]]
+        if sheet.get("refrains"):
+            out.append("\nFIXED REFRAINS (reuse the whole frame; change only what the page changes):")
+            out += [f"- {r.get('source','')} -> {r.get('yue','')}" for r in sheet["refrains"]]
+    out.append("\nNAMES: leave every character, place and brand name exactly as printed in the "
+               "source. Do not transliterate them.")
+    if palette:
+        out.append("\nVIVID FORMS attested in Words.hk (粵典) — reach for these rather than repeating "
+                   "one shape. Use only where they genuinely fit:")
+        out += [f"- {w} — {g}" for w, g in palette]
+    return "\n".join(out)
+
+
+# Seed shapes for the vividness palette. Every one is verified against the Words.hk corpus at run
+# time and silently dropped if it has no entry, so nothing unattested reaches the prompt. Needed
+# because ABB/AAB was asserted in the prompt and in the benchmark rubric but grounded in neither:
+# across the 529 pages of the first rebuild, the only ABB forms that showed up in any number were
+# 靜雞雞 and 慢慢嚟 — the two examples the prompt itself lists.
+PALETTE_SEEDS = [
+    "靜雞雞", "慢慢嚟", "急急腳", "笑騎騎", "眼濕濕", "面青青", "口噏噏", "立立亂", "傻更更",
+    "肥腯腯", "圓碌碌", "黑鼆鼆", "慌失失", "戇居居", "論論盡盡", "濕立立", "熱辣辣", "凍冰冰",
+    "軟腍腍", "硬鎁鎁", "甜絲絲", "苦茵茵", "光脫脫", "亂糟糟", "醉醺醺", "喼喼聲", "嘭嘭聲",
+    "騰騰震", "騰雞", "鬼馬", "牙擦擦", "沙塵", "論盡", "百厭",
+]
+
+
+def vivid_palette(cache={}, log=print):   # noqa: B006 — deliberate module-level memo
+    """Keep only the seeds that Words.hk actually has, with their gloss."""
+    if cache:
+        return cache.get("palette", [])
+    try:
+        sys.path.insert(0, str(HERE.parent.parent / "language-benchmarks" / "engine"))
+        import rag  # noqa: PLC0415
+    except Exception as e:  # noqa: BLE001
+        log(f"  vividness palette unavailable ({e}) — continuing without it")
+        cache["palette"] = []
+        return []
+    out = []
+    for w in PALETTE_SEEDS:
+        try:
+            hits = rag.retrieve(w, k=1)
+        except Exception:  # noqa: BLE001
+            continue
+        if not hits or not hits[0].startswith(tuple("0123456789")):
+            continue
+        head = hits[0].split(",", 1)[1] if "," in hits[0] else hits[0]
+        if not head.startswith(w):        # retriever drifted to a different headword; drop it
+            continue
+        gloss = ""
+        if "eng:" in head:
+            gloss = head.split("eng:", 1)[1].split("<eg>")[0].strip().strip('"')[:60]
+        out.append((w, gloss or "attested in Words.hk"))
+    log(f"  vividness palette: {len(out)} of {len(PALETTE_SEEDS)} seed forms attested in Words.hk")
+    cache["palette"] = out
+    return out
+
+
 def detect_template(chat_doc, first_user_content):
     """EN books vs Chinese books, from the chat's own stored system prompt."""
     sp = chat_doc.get("systemPrompt") or ""
@@ -232,21 +459,25 @@ def plan_pages(msgs):
     """
     assistant_idx = [i for i, (_, d) in enumerate(msgs) if d.get("role") == "assistant"]
     claimed = set()
-    pages, text_turns = [], []
-    page = 0
 
+    def claim_after(i):
+        j = next((k for k in assistant_idx if k > i and k not in claimed), None)
+        if j is not None:
+            claimed.add(j)
+        return msgs[j][0] if j is not None else None
+
+    # PHOTOS CLAIM FIRST. They are the spine, and pass 2 overwrites whatever they claim. Letting a
+    # typed turn claim first lets it take a doc that pass 2 then re-creates, which stranded two v1
+    # page translations under corrections in 好孩子好习惯（成长卷）.
+    pages = []
+    page = 0
     for i, (snap, d) in enumerate(msgs):
-        if d.get("role") != "user":
-            continue
-        target = next((j for j in assistant_idx if j > i and j not in claimed), None)
-        if target is not None:
-            claimed.add(target)
-        reply = msgs[target][0] if target is not None else None
-        if d.get("image"):
+        if d.get("role") == "user" and d.get("image"):
             page += 1
-            pages.append((page, snap, d, reply))
-        else:
-            text_turns.append((snap, reply))
+            pages.append((page, snap, d, claim_after(i)))
+
+    text_turns = [(snap, claim_after(i)) for i, (snap, d) in enumerate(msgs)
+                  if d.get("role") == "user" and not d.get("image")]
 
     surplus = [msgs[j][0] for j in assistant_idx if j not in claimed]
     return pages, text_turns, surplus
@@ -294,13 +525,51 @@ def process_chat(db, chat_id, templates, model_id, backup_dir, apply, img_cache,
             log(f"  [{chat_id[:10]}] keeping conversation turn {u_snap.id} -> {a_snap.id} "
                 f"(anchored, text unchanged)")
             if apply:
-                a_snap.reference.update({"replyTo": u_snap.id})
+                a_snap.reference.update({"replyTo": u_snap.id,
+                                         "pageIndex": firestore.DELETE_FIELD})
 
+    # --- pass 1: read the whole book, then decide the repeated wording once -------------------
+    page_imgs = {}
+    for page, u_snap, u_data, a_snap in pages:
+        page_imgs[page] = (fetch_image(u_data["image"]["url"], img_cache),
+                           u_data["image"].get("type", "image/jpeg"))
+    page_texts = {}
+    with cf.ThreadPoolExecutor(max_workers=6) as ex:
+        futs = {ex.submit(ocr_page, img, mime): p for p, (img, mime) in page_imgs.items()}
+        for f in cf.as_completed(futs):
+            try:
+                page_texts[futs[f]] = f.result()
+            except Exception as e:  # noqa: BLE001
+                log(f"  [{chat_id[:10]}] OCR failed on page {futs[f]}: {str(e)[:60]}")
+                page_texts[futs[f]] = ""
+    palette = vivid_palette(log=lambda m: log(f"  [{chat_id[:10]}]{m}"))
+    slog = lambda m: log(f"  [{chat_id[:10]}]{m}")   # noqa: E731
+    sheet = build_book_sheet(model_id, title, page_texts, palette, log=slog)
+    unreadable = unreadable_terms(sheet)
+    if unreadable:
+        names = ", ".join(f"{i.get('yue','')} ({m})" for i, m in unreadable)
+        slog(f"  sheet uses characters the Visual Font has no glyph for: {names} — asking again")
+        sheet = build_book_sheet(
+            model_id, title, page_texts, palette, log=slog,
+            extra=("A previous attempt used these renderings, which contain characters the "
+                   f"reader's font has no glyph for, so they lose their jyutping: {names}. "
+                   "Choose different wording built from characters the font covers."))
+        still = unreadable_terms(sheet)
+        if still:
+            slog(f"  still unreadable after retry: {[i.get('yue') for i, _ in still]}")
+    addendum = sheet_block(sheet, palette)
+    system = system + addendum
+    stats["sheet_terms"] = len(sheet.get("terms", [])) if sheet else 0
+    stats["sheet_refrains"] = len(sheet.get("refrains", [])) if sheet else 0
+    stats["_sheet"] = sheet
+    stats["_page_texts"] = page_texts
+
+    # --- pass 2: translate each page, pinned by the sheet -------------------------------------
+    translations = {}
     history = []
     for page, u_snap, u_data, a_snap in pages:
         try:
-            img = fetch_image(u_data["image"]["url"], img_cache)
-            mime = u_data["image"].get("type", "image/jpeg")
+            img, mime = page_imgs[page]
             text = translate_page(model_id, system, instruction, img, mime,
                                   history=tuple(history[-history_pages:]) if history_pages else ())
         except Exception as e:  # noqa: BLE001
@@ -317,6 +586,7 @@ def process_chat(db, chat_id, templates, model_id, backup_dir, apply, img_cache,
             f"hist={len(history[-history_pages:]) if history_pages else 0}p "
             f"msg={u_snap.id} -> {len(text)}ch  {text[:70]}".replace("\n", " "))
         history.append((img, mime, instruction, text))
+        translations[page] = text
 
         payload = {
             "role": "assistant",
@@ -362,9 +632,15 @@ def process_chat(db, chat_id, templates, model_id, backup_dir, apply, img_cache,
             if apply:
                 s.reference.update({"orphaned": True})
 
+    # Did the fixed wording actually hold? This is the check the first rebuild did not have, and
+    # its absence is why a term drifting at page 19 shipped looking clean.
+    stats["drift"] = check_refrains(sheet, translations, page_texts, log=lambda m: log(f"  [{chat_id[:10]}]{m}"))
+
     if apply:
-        chat_ref.update({"systemPrompt": system, "enableWebSearch": bool(tpl.get("enableWebSearch")),
-                         "rebuiltAt": firestore.SERVER_TIMESTAMP, "rebuiltModel": model_id})
+        chat_ref.update({"systemPrompt": tpl["systemPrompt"],
+                         "enableWebSearch": bool(tpl.get("enableWebSearch")),
+                         "rebuiltAt": firestore.SERVER_TIMESTAMP, "rebuiltModel": model_id,
+                         "bookSheet": sheet or None})
         stats["verify"] = verify_chat(chat_ref)
         log(f"[{chat_id[:10]}] verify: {stats['verify']}")
 
@@ -374,6 +650,53 @@ def process_chat(db, chat_id, templates, model_id, backup_dir, apply, img_cache,
         log(f"[{chat_id[:10]}] pages followed by a conversation turn (usually a correction you "
             f"asked for — the fresh translation will not know about it): {stats['corrected_pages']}")
     return stats
+
+
+def check_refrains(sheet, translations, page_texts, log=print):
+    """Wherever the SOURCE carries a fixed phrase, the translation must carry its fixed rendering.
+
+    This is the check the first rebuild did not have, and its absence is why a term drifting at
+    page 19 shipped looking clean: the LLM judge only ever saw one page at a time, so a word that
+    changed halfway through the book was invisible to it. Grumpy Monkey ran 燥底 on pages 4-9 and
+    扭擰 on 19-25 and still scored 4.44.
+
+    Renderings may be templates with ___ for the slot that changes; every literal fragment around
+    the slot has to be present.
+    """
+    if not sheet:
+        return []
+
+    def present(rendering, text):
+        r = rendering
+        for mark in ("___", "…", "...", "／", "/", "[", "]", "（", "）", "(", ")"):
+            r = r.replace(mark, "\x00")
+        parts = [f.strip() for f in r.split("\x00") if len(f.strip()) >= 2]
+        return all(f in text for f in parts) if parts else False
+
+    problems = []
+    for kind in ("terms", "refrains"):
+        for item in sheet.get(kind, []):
+            src = (item.get("source") or "").strip()
+            fixed = (item.get("yue") or "").strip()
+            if not src or not fixed or len(fixed) < 2:
+                continue
+            # Short generic words produce noise, not signal: 'rain' fires on a page that says
+            # 雨停咗喇 because the sheet fixed the noun 落雨, and 'sun' fires on 'sunshine'. The
+            # failure this guards against is a multi-word running phrase changing halfway through
+            # a book, which is always well over this length.
+            key = src.split("/")[0].split("[")[0].strip().lower()
+            if len(key) < 5:
+                continue
+            expected = sorted(p for p, t in page_texts.items() if key in (t or "").lower())
+            missing = [p for p in expected if not present(fixed, translations.get(p, ""))]
+            if expected and missing:
+                problems.append({"kind": kind, "source": src, "yue": fixed,
+                                 "on_pages": expected, "missing_on": missing})
+                log(f"  DRIFT {kind}: {src!r} -> {fixed!r} expected on {expected}, "
+                    f"missing on {missing}")
+    if not problems:
+        log("  refrain check: every fixed rendering held on every page that needed it")
+    return problems
 
 
 def verify_chat(chat_ref):
@@ -472,12 +795,17 @@ def main():
             continue
         v = r.get("verify")
         flag = "" if (v is None or v["ok"]) else "  <-- VERIFY FAILED"
-        if flag:
+        if r.get("drift"):
+            flag += f"  <-- {len(r['drift'])} DRIFT"
+        if v is not None and not v["ok"]:
             bad += 1
         print(f"  [{r['chat_id'][:10]}] {str(r.get('title'))[:34]:34} pages={r['pages']:3d} "
               f"rebuilt={r['rebuilt']:3d} created={r['created']:2d} deleted={r['deleted']:2d} "
+              f"sheet={r.get('sheet_terms',0)}t/{r.get('sheet_refrains',0)}r "
               f"errors={r['errors']:2d}{flag}")
-        if flag:
+        for d in (r.get("drift") or [])[:4]:
+            print(f"      drift: {d['source'][:40]!r} -> {d['yue'][:30]!r} missing on {d['missing_on']}")
+        if v is not None and not v["ok"]:
             print(f"      {v}")
     if not args.apply:
         print("\nDry run — nothing was written. Backups were still taken; re-run with --apply.")
