@@ -435,6 +435,51 @@ def judge_text(model_id, system, user, max_tokens=8000):
     raise last
 
 
+KEEP_TOKEN = "KEEP"
+
+REPAIR_INSTRUCTION = """A reviewer flagged the stored translation of this page. Your job is to
+CORRECT it against the page, not to rewrite it.
+
+REVIEWER'S COMPLAINT
+{finding}
+
+INDEPENDENT TRANSCRIPTION of the printed text, read by a different model:
+{source}
+
+CURRENT STORED TRANSLATION
+{current}
+
+The photo is the ground truth; the transcription is a second opinion on small or rotated text that
+is easy to misread. Weigh both.
+
+The reviewer is often wrong — it misreads tilted speech bubbles, and it reports text it cannot see
+as missing when the photo is cropped. So:
+- If the complaint is right, output the corrected translation in full, in the same format.
+- If the complaint does NOT hold up against the page, output exactly {keep} and nothing else.
+Never invent a clause to satisfy the reviewer."""
+
+
+def repair_page(model_id, system, page_instruction, image_bytes, mime, finding, source_text,
+                current):
+    """Re-translate ONE page in light of what the reviewer actually said.
+
+    The old repair passed only the system prompt and the photo, so it re-read the same tilted
+    bubble with the same model and reproduced the same misreading — 好孩子好习惯 - 心灵卷 p17 came
+    back wrong on fourteen consecutive nights while the judge sat there having correctly
+    transcribed the bubble as 你们好脏.
+
+    Returns the corrected text, or None when the model judges the complaint unfounded.
+    """
+    instruction = page_instruction + "\n\n" + REPAIR_INSTRUCTION.format(
+        finding=finding or "(none given)", source=source_text or "(unavailable)",
+        current=current or "(empty)", keep=KEEP_TOKEN)
+    out = translate_page(model_id, system, instruction, image_bytes, mime)
+    stripped = out.strip().strip("`").strip()
+    if not stripped or stripped.upper().startswith(KEEP_TOKEN):
+        return None
+    return out
+
+
 def detect_template(chat_doc, first_user_content):
     """Which book template this chat was made with, from its own stored system prompt."""
     sp = chat_doc.get("systemPrompt") or ""
@@ -680,6 +725,11 @@ def process_chat(db, chat_id, templates, model_id, backup_dir, apply, img_cache,
             "content": text,
             "replyTo": u_snap.id,
             "pageIndex": page,
+            # Pass 1 already transcribed this page with a DIFFERENT model to build the book sheet.
+            # It used to be thrown away, which is why a repair could only re-read the photo with the
+            # same model that misread it the first time. Keeping it gives every later step a second,
+            # independent reading of what the page actually says.
+            "sourceText": page_texts.get(page, ""),
             "model": model_id,
             "rebuiltAt": firestore.SERVER_TIMESTAMP,
             "isStreaming": False,

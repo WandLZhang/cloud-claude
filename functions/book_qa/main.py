@@ -168,7 +168,28 @@ def review_book(chat_id, title, dry_run, log):
             page_imgs[p] = (pipeline.fetch_image(ph["image"]["url"], img_cache),
                             ph["image"].get("type", "image/jpeg"))
 
-    fid_findings, scores = checks.page_fidelity(chat_id, page_imgs, pages)
+    # Every book finalized before the transcription was kept has no sourceText. OCR those pages
+    # once, here, and store it — cheaper than re-finalizing the corpus, and it converges.
+    source_texts = {p: (x.get("sourceText") or "") for p, (_, x) in page_docs.items()}
+    missing = [p for p, t in source_texts.items() if not t.strip() and p in page_imgs]
+    if missing:
+        log(f"  transcribing {len(missing)} page(s) that predate sourceText")
+        import concurrent.futures as _cf
+        with _cf.ThreadPoolExecutor(max_workers=6) as ex:
+            futs = {ex.submit(pipeline.ocr_page, *page_imgs[p]): p for p in missing}
+            for f in _cf.as_completed(futs):
+                p = futs[f]
+                try:
+                    source_texts[p] = f.result()
+                except Exception as e:  # noqa: BLE001
+                    log(f"  OCR failed on p{p}: {str(e)[:60]}")
+                    continue
+                if not dry_run:
+                    ref.collection("messages").document(page_docs[p][0]).update(
+                        {"sourceText": source_texts[p]})
+
+    fid_findings, scores = checks.page_fidelity(chat_id, page_imgs, pages,
+                                                source_texts=source_texts)
     findings += fid_findings
 
     # Repair the pages that drifted off their own photo, pinned to the book's stored sheet.
@@ -182,13 +203,25 @@ def review_book(chat_id, title, dry_run, log):
         system = tpl["systemPrompt"] + pipeline.sheet_block(chat.get("bookSheet"),
                                                             pipeline.vivid_palette(log=lambda _m: None))
         instruction = f"{tpl['content']}\n\n{pipeline.PAGE_INSTRUCTION}"
+        # What the judge actually said about each bad page, so the repair is a correction rather
+        # than a blind re-roll of the same dice.
+        why = {f.get("page"): f.get("detail", "") for f in fid_findings if f.get("page")}
         for p in bad:
             mid, doc = page_docs[p]
             img, mime = page_imgs[p]
             try:
-                fresh = pipeline.translate_page(pipeline.DEFAULT_MODEL, system, instruction, img, mime)
+                fresh = pipeline.repair_page(pipeline.DEFAULT_MODEL, system, instruction, img, mime,
+                                             why.get(p, ""), source_texts.get(p, ""),
+                                             doc.get("content", ""))
             except Exception as e:  # noqa: BLE001
                 log(f"  p{p} repair failed: {str(e)[:70]}")
+                continue
+            if fresh is None:
+                # The reviewer was wrong about this page — three of five flags on 心灵卷 were.
+                # Rewriting a correct page to satisfy a bad complaint is worse than leaving it.
+                log(f"  p{p} complaint did not hold up against the page — left unchanged")
+                repaired.append({"page": p, "before": scores[p], "after": scores[p],
+                                 "declined": True})
                 continue
             payload = {"content": fresh, "repairedAt": firestore.SERVER_TIMESTAMP}
             if "contentBeforeRebuild" not in doc:
@@ -206,13 +239,22 @@ def review_book(chat_id, title, dry_run, log):
 
     # A page that was repaired back above the bar is no longer a finding — leaving the original
     # error in would mark the book needsAttention forever and hide what is actually still wrong.
-    fixed = {r["page"] for r in repaired if (r["after"] or 0) >= 4}
+    # A page the repair declined is treated as resolved: the judge's complaint was examined
+    # against the photo and the transcription and rejected. Otherwise a false positive would keep
+    # the book in needsAttention until it burned all three strikes.
+    # A page counts as resolved either because the repair raised it, or because the repair looked
+    # at the complaint against the photo and the transcription and rejected it. Both are outcomes;
+    # only a page that stays low WITHOUT being declined keeps the book flagged (needs_attention,
+    # set in the loop above).
+    fixed = {r["page"] for r in repaired if (r["after"] or 0) >= 4 or r.get("declined")}
     if fixed:
         findings = [f for f in findings
                     if not (f["check"] == "fidelity" and f.get("page") in fixed)]
         findings.append({"check": "fidelity", "severity": "info", "chatId": chat_id,
-                         "detail": "repaired " + ", ".join(
-                             f"p{r['page']} {r['before']}->{r['after']}"
+                         "detail": "; ".join(
+                             (f"p{r['page']} complaint rejected on review (stayed {r['before']})"
+                              if r.get("declined")
+                              else f"p{r['page']} repaired {r['before']}->{r['after']}")
                              for r in repaired if r["page"] in fixed)})
 
     rt_findings, overall = checks.book_readthrough(chat_id, title, pages, checks.JUDGE_MODEL)

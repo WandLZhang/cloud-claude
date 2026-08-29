@@ -136,17 +136,28 @@ FIDELITY_RUBRIC = (
 JUDGE_MODEL = "gemini-3.5-flash"     # cross-family from the claude-opus-5 generator
 
 
-def page_fidelity(chat_id, page_imgs, pages, workers=6):
-    """LLM, one call per page. Returns (findings, {page: score})."""
+def page_fidelity(chat_id, page_imgs, pages, workers=6, source_texts=None):
+    """LLM, one call per page. Returns (findings, {page: score}).
+
+    `source_texts` is the pass-1 transcription of each page, read by a different model. Supplying it
+    is what stops the judge re-reading tilted speech bubbles by eye: on 心灵卷 it called a complete
+    page incomplete (p32) and flagged two correct clauses (p49), both pages of scattered rotated
+    bubbles. It is an aid, not an authority — the photo still decides.
+    """
     from google.genai import types
+    source_texts = source_texts or {}
 
     def one(page):
         img, mime = page_imgs[page]
+        src = (source_texts.get(page) or "").strip()
+        aid = (f"\n\nAn independent transcription of the printed text, by a different model — use "
+               f"it to check small or rotated text you might misread, but the photo decides:\n{src}"
+               if src else "")
         r = pipeline._gemini().models.generate_content(
             model=JUDGE_MODEL,
             contents=[types.Part.from_bytes(data=img, mime_type=mime),
-                      types.Part.from_text(text=FIDELITY_RUBRIC + "\n\nStored translation:\n"
-                                           + _yue(pages[page]))],
+                      types.Part.from_text(text=FIDELITY_RUBRIC + aid
+                                           + "\n\nStored translation:\n" + _yue(pages[page]))],
             config=types.GenerateContentConfig(temperature=0, max_output_tokens=2000))
         t = r.text or ""
         a, b = t.find("{"), t.rfind("}")
@@ -180,7 +191,8 @@ the sentences — an individually fine page that breaks the pattern is a defect.
 Character, place and brand names are deliberately left in the source language and read aloud in
 English. That is a settled decision — never report it.
 
-Report only real problems, at most six, each naming the page numbers:
+Report only real problems, at most six. Name ONLY the pages where the problem actually appears —
+do not add a neighbouring page for context, and do not widen a single page's problem into a range:
 - a word or phrase the source repeats that is rendered differently in different places
 - a refrain whose frame changes when the source did not change
 - register that slips: 書面語 creeping in, or an adult voice in a book for small children
