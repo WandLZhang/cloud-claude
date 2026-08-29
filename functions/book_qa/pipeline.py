@@ -82,8 +82,20 @@ MODELS = {
 }
 
 # Saved prompt templates (prompts/<uid>/userPrompts/<id>) — the same ones the app sends.
-TEMPLATE_ZH_TO_YUE = "g8QTqrl3O40ex8pmBSvf"   # 中 → 粵
-TEMPLATE_EN_TO_PU_YUE = "K731ZzMJXnlP85BNCFmY"  # EN → 普粵 (books)
+TEMPLATE_ZH_TO_YUE = "g8QTqrl3O40ex8pmBSvf"      # 中 → 粵        (Cantonese only)
+TEMPLATE_EN_TO_PU_YUE = "K731ZzMJXnlP85BNCFmY"   # EN → 普粵      (Mandarin + Cantonese)
+TEMPLATE_ZH_TO_PU_YUE = "WZwR0n4fZZtB4rpmpQ5D"   # 中 → 普+粵     (Mandarin + Cantonese)
+BOOK_TEMPLATES = (TEMPLATE_ZH_TO_YUE, TEMPLATE_EN_TO_PU_YUE, TEMPLATE_ZH_TO_PU_YUE)
+
+# First line of each book template's system prompt. Used to recognise a book chat and to route it
+# back to the template it was made with — routing it to the wrong one silently changes the output
+# shape (中→粵 emits Cantonese only, so a 中→普+粵 book would lose its entire Mandarin half).
+TEMPLATE_BY_PROMPT = (
+    ("You translate English text into both", TEMPLATE_EN_TO_PU_YUE),
+    ("You translate Mandarin Chinese text into", TEMPLATE_ZH_TO_YUE),
+    # the trailing "For each" matters: 中→普 EN opens "…book text as a study/reading aid"
+    ("You process standard written Chinese (書面語) book text. For each", TEMPLATE_ZH_TO_PU_YUE),
+)
 
 PAGE_INSTRUCTION = ("The text is printed on the attached photo of a single page of a children's "
                     "book. Translate ONLY the text printed on THIS page — do not continue the "
@@ -424,15 +436,19 @@ def judge_text(model_id, system, user, max_tokens=8000):
 
 
 def detect_template(chat_doc, first_user_content):
-    """EN books vs Chinese books, from the chat's own stored system prompt."""
+    """Which book template this chat was made with, from its own stored system prompt."""
     sp = chat_doc.get("systemPrompt") or ""
-    if sp.startswith("You translate English text into both"):
-        return TEMPLATE_EN_TO_PU_YUE
-    if sp.startswith("You translate Mandarin Chinese text into"):
-        return TEMPLATE_ZH_TO_YUE
+    for prefix, tid in TEMPLATE_BY_PROMPT:
+        if sp.startswith(prefix):
+            return tid
     if "in English you will translate" in first_user_content:
         return TEMPLATE_EN_TO_PU_YUE
     return TEMPLATE_ZH_TO_YUE
+
+
+def is_book_prompt(system_prompt):
+    """True when this chat's system prompt is one of the book templates."""
+    return any((system_prompt or "").startswith(p) for p, _ in TEMPLATE_BY_PROMPT)
 
 
 def fetch_image(url, cache):

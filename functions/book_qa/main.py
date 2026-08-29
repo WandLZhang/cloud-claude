@@ -47,6 +47,11 @@ MIN_PAGES = 3                  # fewer than this is not a book yet
 QUIESCE_HOURS = 6              # never finalize a book that is still being photographed
 DEFAULT_BUDGET_S = 45 * 60     # the function ceiling is 3600s; stop cleanly well before it
 MAX_REPAIRS_PER_BOOK = 20      # past this it is systemic — report it, do not rewrite the book
+# A book left with an error is retried the next night rather than parked silently. After this many
+# nights it IS parked: 好孩子好习惯 - 心灵卷 sat at fidelity 3 on the same three pages for 14
+# consecutive nights, re-reviewed every time, because a re-translation cannot fix a defect the
+# judge keeps scoring the same way. Retrying forever is not persistence, it is noise.
+MAX_QA_STRIKES = 3
 
 db = firestore.Client(project=PROJECT)
 
@@ -57,7 +62,7 @@ def _conversations():
 
 def _load_templates():
     out = {}
-    for tid in (pipeline.TEMPLATE_ZH_TO_YUE, pipeline.TEMPLATE_EN_TO_PU_YUE):
+    for tid in pipeline.BOOK_TEMPLATES:
         d = (db.collection("prompts").document(USER_ID)
              .collection("userPrompts").document(tid).get().to_dict())
         if not d or not d.get("systemPrompt"):
@@ -90,9 +95,7 @@ def survey(only_chat=None):
         # detect_template always returns a template, so require a real book system prompt or a
         # sheet from a previous run before treating a chat as a book.
         sp = d.get("systemPrompt") or ""
-        looks_like_book = (sp.startswith("You translate English text into both")
-                           or sp.startswith("You translate Mandarin Chinese text into")
-                           or bool(d.get("bookSheet")))
+        looks_like_book = pipeline.is_book_prompt(sp) or bool(d.get("bookSheet"))
         if not looks_like_book:
             continue
 
@@ -104,10 +107,12 @@ def survey(only_chat=None):
             "pages": len(photos), "quiet": quiet,
             "needsFinalize": (fin.get("version", 0) < PIPELINE_VERSION
                               or fin.get("pageCount") != len(photos)),
-            # a re-translation invalidates the previous review
+            # a re-translation invalidates the previous review; an unresolved one is retried
+            # only until it has used up its strikes
             "needsReview": (qa.get("version", 0) < QA_VERSION
                             or qa.get("finalizeVersion") != fin.get("version")
-                            or bool(qa.get("needsAttention"))),
+                            or (bool(qa.get("needsAttention"))
+                                and qa.get("strikes", 0) < MAX_QA_STRIKES)),
         })
     return books
 
@@ -213,8 +218,12 @@ def review_book(chat_id, title, dry_run, log):
     rt_findings, overall = checks.book_readthrough(chat_id, title, pages, checks.JUDGE_MODEL)
     findings += rt_findings
 
+    prior = (chat.get("qa") or {})
+    strikes = (prior.get("strikes", 0) + 1) if prior.get("needsAttention") else 0
+
     record = {
         "version": QA_VERSION,
+        "strikes": strikes,
         "finalizeVersion": (chat.get("finalize") or {}).get("version"),
         "at": firestore.SERVER_TIMESTAMP,
         "pagesChecked": len(scores),
@@ -224,11 +233,15 @@ def review_book(chat_id, title, dry_run, log):
         "findings": findings[:40],
         "needsAttention": needs_attention or any(f["severity"] == "error" for f in findings),
     }
+    # An unresolved book comes back tomorrow — but only while it has strikes left. Once they are
+    # spent it is stamped at the current version and marked `parked`, so it stops consuming a
+    # review every night and simply waits for a human.
+    record["parked"] = record["needsAttention"] and strikes >= MAX_QA_STRIKES
     if not dry_run:
-        # A book still carrying an error stays unstamped, so tomorrow picks it up again rather
-        # than parking it silently.
-        ref.update({"qa": record} if not record["needsAttention"]
-                   else {"qa": {**record, "version": 0}})
+        ref.update({"qa": record if (not record["needsAttention"] or record["parked"])
+                    else {**record, "version": 0}})
+        if record["parked"]:
+            log(f"  parked after {strikes} nights unresolved — needs a human, not another retry")
     return record, findings
 
 

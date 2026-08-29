@@ -50,7 +50,7 @@ def main():
     db = firestore.client()
 
     templates = {}
-    for tid in (pipeline.TEMPLATE_ZH_TO_YUE, pipeline.TEMPLATE_EN_TO_PU_YUE):
+    for tid in pipeline.BOOK_TEMPLATES:
         d = db.collection("prompts").document(pipeline.USER_ID).collection("userPrompts").document(tid).get().to_dict()
         if not d or not d.get("systemPrompt"):
             print(f"FATAL: prompt template {tid} missing or has no systemPrompt")
