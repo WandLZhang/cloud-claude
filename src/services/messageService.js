@@ -16,164 +16,185 @@ function instructionForImageTurn(previousMessages) {
   return lead ? `${lead}\n\n${IMAGE_TURN_HINT}` : IMAGE_TURN_HINT;
 }
 
-export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}) {
-  try {
-    // Prepare messages array for Claude.
-    // Pass image/document Storage URLs through per-message so historical
-    // attachments are visible to the model on follow-up turns. The backend
-    // re-downloads each Storage URL and embeds it as an image/document block.
-    const messages = previousMessages.map(msg => {
-      const out = { role: msg.role, content: msg.content || '' };
-      if (msg.image && msg.image.url) {
-        out.image = { url: msg.image.url, type: msg.image.type };
-      }
-      if (msg.document && msg.document.url) {
-        out.document = {
-          url: msg.document.url,
-          type: msg.document.type,
-          name: msg.document.name
-        };
-      }
-      return out;
-    });
-
-    // Add the new message. A photo with no typed text gets the chat's opening instruction restated
-    // — the Firestore message stays empty so the UI still shows just the photo.
-    const outgoing = (newContent || '').trim();
-    const turnText = (!outgoing && image) ? instructionForImageTurn(previousMessages) : (newContent || '');
-    if (!outgoing && image) {
-      console.log('[messageService] Photo-only turn — restating instruction:', turnText);
+/**
+ * Stream one turn from the chat function, yielding chunk / status / error / done events.
+ *
+ * `persist` ({ chatId, messageId, idToken }) asks the function to save the reply to Firestore
+ * itself. A thrown error carries `serverStarted`: false when the request never got a response (the
+ * function never started the turn), true when the stream broke after it started (the function
+ * keeps going and saves the outcome).
+ */
+export async function* streamMessageToClaud(previousMessages, newContent, image, config = {}, persist = null) {
+  // Prepare messages array for Claude.
+  // Pass image/document Storage URLs through per-message so historical
+  // attachments are visible to the model on follow-up turns. The backend
+  // re-downloads each Storage URL and embeds it as an image/document block.
+  const messages = previousMessages.map(msg => {
+    const out = { role: msg.role, content: msg.content || '' };
+    if (msg.image && msg.image.url) {
+      out.image = { url: msg.image.url, type: msg.image.type };
     }
-    messages.push({
-      role: 'user',
-      content: turnText
-    });
+    if (msg.document && msg.document.url) {
+      out.document = {
+        url: msg.document.url,
+        type: msg.document.type,
+        name: msg.document.name
+      };
+    }
+    return out;
+  });
 
-    // Prepare request payload
-    const payload = {
-      messages,
-      use_cache: true
+  // Add the new message. A photo with no typed text gets the chat's opening instruction restated
+  // — the Firestore message stays empty so the UI still shows just the photo.
+  const outgoing = (newContent || '').trim();
+  const turnText = (!outgoing && image) ? instructionForImageTurn(previousMessages) : (newContent || '');
+  if (!outgoing && image) {
+    console.log('[messageService] Photo-only turn — restating instruction:', turnText);
+  }
+  messages.push({
+    role: 'user',
+    content: turnText
+  });
+
+  // Prepare request payload
+  const payload = {
+    messages,
+    use_cache: true
+  };
+
+  payload.system_prompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+
+  // Add image if provided
+  if (image) {
+    payload.image = {
+      url: image.url,
+      type: image.type
     };
+  }
 
-    payload.system_prompt = config.systemPrompt || DEFAULT_SYSTEM_PROMPT;
+  // Add document (PDF) if provided
+  if (config.document) {
+    payload.document = {
+      url: config.document.url,
+      type: config.document.type
+    };
+    console.log('[messageService] Sending with document:', config.document.name);
+  }
 
-    // Add image if provided
-    if (image) {
-      payload.image = {
-        url: image.url,
-        type: image.type
-      };
+  // Add disable_thinking flag if specified in config.
+  // BUT override to false when any image is in play (current turn or history) -
+  // Opus 4.7 with thinking disabled tends to stop early on image translation
+  // tasks, mid-syllable. Image turns get full adaptive thinking even for the
+  // "Everyday Chinese" prompt; text-only turns stay fast.
+  if (config.disableThinking) {
+    const hasAnyImage = !!image || previousMessages.some(m => m && m.image);
+    if (hasAnyImage) {
+      console.log('[messageService] Image attached - overriding disableThinking, enabling adaptive thinking');
+    } else {
+      payload.disable_thinking = true;
+      console.log('[messageService] Sending with disable_thinking=true');
     }
+  }
 
-    // Add document (PDF) if provided
-    if (config.document) {
-      payload.document = {
-        url: config.document.url,
-        type: config.document.type
-      };
-      console.log('[messageService] Sending with document:', config.document.name);
-    }
+  // Use fast model (Sonnet) if specified
+  if (config.useFastModel) {
+    payload.use_fast_model = true;
+    console.log('[messageService] Using fast model (Sonnet 4.6)');
+  }
 
-    // Add disable_thinking flag if specified in config.
-    // BUT override to false when any image is in play (current turn or history) -
-    // Opus 4.7 with thinking disabled tends to stop early on image translation
-    // tasks, mid-syllable. Image turns get full adaptive thinking even for the
-    // "Everyday Chinese" prompt; text-only turns stay fast.
-    if (config.disableThinking) {
-      const hasAnyImage = !!image || previousMessages.some(m => m && m.image);
-      if (hasAnyImage) {
-        console.log('[messageService] Image attached - overriding disableThinking, enabling adaptive thinking');
-      } else {
-        payload.disable_thinking = true;
-        console.log('[messageService] Sending with disable_thinking=true');
-      }
-    }
+  // Enable web search if specified
+  if (config.enableWebSearch) {
+    payload.enable_web_search = true;
+    console.log('[messageService] Web search enabled');
+  }
 
-    // Use fast model (Sonnet) if specified
-    if (config.useFastModel) {
-      payload.use_fast_model = true;
-      console.log('[messageService] Using fast model (Sonnet 4.6)');
-    }
+  const headers = { 'Content-Type': 'application/json' };
+  if (persist) {
+    payload.persist = { chat_id: persist.chatId, message_id: persist.messageId };
+    headers.Authorization = `Bearer ${persist.idToken}`;
+    console.log('[messageService] persist:', payload.persist);
+  }
 
-    // Enable web search if specified
-    if (config.enableWebSearch) {
-      payload.enable_web_search = true;
-      console.log('[messageService] Web search enabled');
-    }
+  console.log('[messageService] Payload keys:', Object.keys(payload));
 
-    console.log('[messageService] Payload keys:', Object.keys(payload));
-
-    // Use fetch for streaming support
-    const response = await fetch(CLOUD_FUNCTION_URL, {
+  // Use fetch for streaming support
+  let response;
+  try {
+    response = await fetch(CLOUD_FUNCTION_URL, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(payload)
     });
+  } catch (error) {
+    console.error('[messageService] the request never reached the function:', error);
+    throw Object.assign(error, { serverStarted: false });
+  }
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+  if (!response.ok) {
+    console.error('[messageService] the function refused the request:', response.status);
+    throw Object.assign(new Error(`HTTP error! status: ${response.status}`), { serverStarted: false });
+  }
+
+  // Read the streaming response
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalData = null;
+
+  while (true) {
+    let result;
+    try {
+      result = await reader.read();
+    } catch (error) {
+      console.error('[messageService] lost the stream after the function started:', error);
+      throw Object.assign(error, { serverStarted: true });
     }
+    const { done, value } = result;
 
-    // Read the streaming response
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let finalData = null;
+    if (done) break;
 
-    while (true) {
-      const { done, value } = await reader.read();
+    buffer += decoder.decode(value, { stream: true });
 
-      if (done) break;
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || '';
 
-      buffer += decoder.decode(value, { stream: true });
+    for (const line of lines) {
+      // Skips blank separators and ': keepalive' comments.
+      if (!line.startsWith('data: ')) continue;
 
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+      let parsed;
+      try {
+        parsed = JSON.parse(line.slice(6));
+      } catch (e) {
+        console.error('Failed to parse SSE data:', e);
+        continue;
+      }
 
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const data = line.slice(6);
-
-          if (data.trim()) {
-            try {
-              const parsed = JSON.parse(data);
-
-              if (parsed.type === 'chunk') {
-                yield { type: 'chunk', text: parsed.text };
-              } else if (parsed.type === 'retry') {
-                yield { type: 'retry', attempt: parsed.attempt, reason: parsed.reason };
-              } else if (parsed.type === 'done') {
-                finalData = parsed;
-              } else if (parsed.type === 'error') {
-                throw new Error(parsed.error);
-              }
-            } catch (e) {
-              console.error('Failed to parse SSE data:', e);
-            }
-          }
-        }
+      if (parsed.type === 'chunk') {
+        yield { type: 'chunk', text: parsed.text };
+      } else if (parsed.type === 'status') {
+        yield { type: 'status', status: parsed.status };
+      } else if (parsed.type === 'error') {
+        console.error('[messageService] the function reported an error:', parsed.error);
+        yield { type: 'error', error: parsed.error };
+      } else if (parsed.type === 'done') {
+        finalData = parsed;
       }
     }
+  }
 
-    // Return final data with complete response
-    if (finalData) {
-      yield {
-        type: 'done',
-        content: finalData.content,
-        thinking: finalData.thinking,
-        usage: finalData.usage,
-        cached: finalData.cached,
-        model: finalData.model,
-        citations: finalData.citations || null,
-        web_search_queries: finalData.web_search_queries || null
-      };
-    }
-
-  } catch (error) {
-    console.error('Error calling Claude API:', error);
-    throw new Error(error.message || 'Failed to get response from Claude');
+  // Return final data with complete response
+  if (finalData) {
+    yield {
+      type: 'done',
+      content: finalData.content,
+      thinking: finalData.thinking,
+      usage: finalData.usage,
+      cached: finalData.cached,
+      model: finalData.model,
+      citations: finalData.citations || null,
+      web_search_queries: finalData.web_search_queries || null
+    };
   }
 }
 

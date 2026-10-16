@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
@@ -6,8 +6,12 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import ExportMenu from './ExportMenu';
 import UserMessageMenu from './UserMessageMenu';
+import { replyState } from './replyState';
 import './ExportMenu.css';
 import './UserMessageMenu.css';
+
+// Statuses that come from web search get the search icon; the rest get a spinner.
+const SEARCH_STATUS_PREFIXES = ['Searching', 'Reading'];
 
 function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId }) {
   const isUser = message.role === 'user';
@@ -15,6 +19,20 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
   const messageRef = useRef(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(message.content || '');
+  const [now, setNow] = useState(() => Date.now());
+
+  // A reply whose turn died never gets another Firestore update, so re-check its age on a timer.
+  useEffect(() => {
+    if (!isStreaming) return undefined;
+    const id = setInterval(() => setNow(Date.now()), 30000);
+    return () => clearInterval(id);
+  }, [isStreaming]);
+
+  const reply = isUser ? null : replyState(message, now);
+  const status = reply?.kind === 'streaming' ? reply.status : null;
+  const showThinking = reply?.kind === 'streaming' && !message.content && (!status || status === 'Thinking');
+  const showStatus = reply?.kind === 'streaming' && status && !showThinking;
+  const isSearchStatus = showStatus && SEARCH_STATUS_PREFIXES.some((p) => status.startsWith(p));
 
   const components = {
     code({ node, inline, className, children, ...props }) {
@@ -137,7 +155,7 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
             >
               {message.content || ''}
             </ReactMarkdown>
-            {isStreaming && !message.content && !message.retryStatus && (
+            {showThinking && (
               <div className="typing-indicator-wrapper">
                 <div className="typing-text">Claude is thinking</div>
                 <div className="typing-indicator">
@@ -147,10 +165,24 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
                 </div>
               </div>
             )}
-            {isStreaming && message.retryStatus && (
+            {showStatus && (
               <div className="retry-indicator">
-                <span className="icon" style={{ fontSize: '16px', animation: 'spin 1s linear infinite' }}>refresh</span>
-                <span>{message.retryStatus}</span>
+                {isSearchStatus ? (
+                  <span className="icon" style={{ fontSize: '16px' }}>travel_explore</span>
+                ) : (
+                  <span className="icon" style={{ fontSize: '16px', animation: 'spin 1s linear infinite' }}>refresh</span>
+                )}
+                <span>{status}</span>
+              </div>
+            )}
+            {(reply?.kind === 'failed' || reply?.kind === 'stopped') && (
+              <div className="error-message">
+                <span className="icon">error</span>
+                <span>
+                  {reply.kind === 'failed'
+                    ? `This reply failed: ${reply.error}`
+                    : 'This reply stopped before it finished. Send your message again.'}
+                </span>
               </div>
             )}
             {message.citations && message.citations.length > 0 && (

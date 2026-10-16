@@ -1,16 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { 
-  subscribeToChat, 
-  addMessage, 
+import {
+  auth,
+  subscribeToChat,
+  addMessage,
   createChat,
   updateMessage,
   uploadImage
 } from '../services/firebase';
 import { streamMessageToClaud } from '../services/messageService';
-
-// Mid-stream Firestore writes are throttled to this interval. Every chunk used to be written
-// immediately, which is far past what a single document sustains.
-const CHUNK_WRITE_MS = 700;
+import { runAssistantTurn } from '../services/assistantTurn';
 
 /**
  * Put every assistant reply directly under the user message it answers.
@@ -136,63 +134,21 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
   }, [userId, currentChatId]);
 
   /**
-   * Create the assistant placeholder, stream into it, and finalise it.
+   * Create the assistant placeholder and run the turn. The chat function saves the reply to
+   * Firestore itself, so closing the page mid-turn no longer loses the answer (assistantTurn.js).
    *
    * One implementation for both the new-chat and existing-chat paths — they used to be copy-pasted,
    * which is how the timestamp-overwrite bug survived in one branch after being fixed in the other.
-   *
-   * `replyTo` binds the reply to the user message it answers, so display order no longer depends on
-   * the timestamps lining up. The placeholder's timestamp is never overwritten.
    */
-  const streamAssistantTurn = useCallback(async ({
-    chatId, userMessageId, history, content, image, config,
-  }) => {
-    const messageId = await addMessage(userId, chatId, {
-      role: 'assistant',
-      content: '',
-      timestamp: new Date(),
-      isStreaming: true,
-      replyTo: userMessageId,
-    });
-
-    let fullContent = '';
-    let finalResponse = null;
-    let lastWrite = 0;
-
-    const stream = streamMessageToClaud(history, content || '', image, config);
-
-    for await (const data of stream) {
-      if (data.type === 'chunk') {
-        fullContent += data.text;
-        // Throttled: the reader only needs to see the text growing, not every token.
-        if (Date.now() - lastWrite >= CHUNK_WRITE_MS) {
-          lastWrite = Date.now();
-          await updateMessage(userId, chatId, messageId,
-            { content: fullContent, isStreaming: true }, { touchChat: false });
-        }
-      } else if (data.type === 'retry') {
-        lastWrite = Date.now();
-        await updateMessage(userId, chatId, messageId,
-          { content: fullContent, isStreaming: true, retryStatus: data.reason }, { touchChat: false });
-      } else if (data.type === 'done') {
-        finalResponse = data;
-      }
-    }
-
-    // Final update — keep the placeholder's original timestamp; only this write touches the
-    // parent chat doc's lastMessage/updatedAt.
-    const finalUpdate = {
-      content: finalResponse?.content || fullContent,
-      isStreaming: false,
-      retryStatus: null,
-    };
-    if (finalResponse?.thinking) finalUpdate.thinking = finalResponse.thinking;
-    if (finalResponse?.citations) finalUpdate.citations = finalResponse.citations;
-    if (finalResponse?.model) finalUpdate.model = finalResponse.model;
-
-    await updateMessage(userId, chatId, messageId, finalUpdate);
-    return messageId;
-  }, [userId]);
+  const streamAssistantTurn = useCallback((turn) => runAssistantTurn({ userId, ...turn }, {
+    addMessage,
+    updateMessage,
+    getIdToken: () => {
+      if (!auth.currentUser) throw new Error('Not signed in');
+      return auth.currentUser.getIdToken();
+    },
+    stream: streamMessageToClaud,
+  }), [userId]);
 
   const sendMessage = useCallback(async (content, image, newChatConfig = {}) => {
     if (!userId || (!content.trim() && !image && !newChatConfig.document)) return;

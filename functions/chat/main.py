@@ -3,9 +3,12 @@ from anthropic import AnthropicVertex
 from flask_cors import cross_origin
 import json
 import base64
+import queue
+import threading
+import time
 import httpx
 import firebase_admin
-from firebase_admin import credentials, storage
+from firebase_admin import auth as fb_auth, credentials, firestore as fb_firestore, storage
 from urllib.parse import urlparse, unquote
 
 # Initialize Firebase Admin
@@ -209,6 +212,391 @@ def download_file_from_storage(url):
         print(f"Error downloading file from Firebase Storage: {str(e)}")
         raise
 
+
+# Seconds of silence on the SSE stream before a keepalive goes out. A turn can think for minutes
+# before its first word; the keepalives show the browser the request is alive.
+HEARTBEAT_SECONDS = 10
+
+
+class TurnStore:
+    """Saves one assistant reply to Firestore as it streams, so the reply survives the browser
+    leaving. The browser creates the placeholder doc; from then on this function owns it.
+
+    Before this, only the browser saved replies. On 2026-08-22 two Opus answers (about 21K output
+    tokens each) finished on the server and were lost because the browser had dropped the stream.
+    """
+
+    CONTENT_GAP = 1.0     # Firestore sustains about one write per second on a document
+    HEARTBEAT_GAP = 15.0  # refresh streamUpdatedAt at least this often; the UI calls a silent turn dead
+
+    def __init__(self, uid, chat_id, message_id):
+        self.chat_ref = (fb_firestore.client().collection('chats').document(uid)
+                         .collection('conversations').document(chat_id))
+        self.msg_ref = self.chat_ref.collection('messages').document(message_id)
+        self.last_write = 0.0
+        self.last_status = None
+        self.last_content = None
+
+    def progress(self, content, status):
+        """Save partial text and the status line. A status change goes out at once, new text at
+        most once a second, and an unchanged turn every HEARTBEAT_GAP seconds."""
+        now = time.monotonic()
+        gap = now - self.last_write
+        status_changed = status != self.last_status
+        text_due = content != self.last_content and gap >= self.CONTENT_GAP
+        if not (status_changed or text_due or gap >= self.HEARTBEAT_GAP):
+            return
+        self.msg_ref.update({'content': content, 'status': status,
+                             'streamUpdatedAt': fb_firestore.SERVER_TIMESTAMP})
+        self.last_write, self.last_status, self.last_content = now, status, content
+
+    def finish(self, content, thinking=None, citations=None, model=None):
+        update = {'content': content, 'isStreaming': False, 'status': None, 'retryStatus': None,
+                  'streamUpdatedAt': fb_firestore.SERVER_TIMESTAMP}
+        if thinking:
+            update['thinking'] = thinking
+        if citations:
+            update['citations'] = citations
+        if model:
+            update['model'] = model
+        self.msg_ref.update(update)
+        self.chat_ref.update({'lastMessage': content, 'updatedAt': fb_firestore.SERVER_TIMESTAMP})
+        print(f"persist: saved reply {self.msg_ref.path} ({len(content)} chars)")
+
+    def fail(self, error, content):
+        self.msg_ref.update({'content': content, 'isStreaming': False, 'status': None, 'error': error,
+                             'streamUpdatedAt': fb_firestore.SERVER_TIMESTAMP})
+        print(f"persist: saved error on {self.msg_ref.path}: {error}")
+
+
+class NoStore:
+    """Stands in for TurnStore when the caller doesn't ask the function to save the reply."""
+
+    def progress(self, content, status):
+        pass
+
+    def finish(self, content, thinking=None, citations=None, model=None):
+        pass
+
+    def fail(self, error, content):
+        pass
+
+
+def open_turn_store(request, persist):
+    """Return (TurnStore, None) when the caller owns the open placeholder reply named in `persist`,
+    else (None, (error body, HTTP status)). The uid comes from the verified Firebase ID token, never
+    from the request, so a caller can only write to their own chats."""
+    header = request.headers.get('Authorization', '')
+    token = header[len('Bearer '):] if header.startswith('Bearer ') else ''
+    if not token:
+        return None, ({'error': 'persist needs a Firebase ID token'}, 401)
+    try:
+        uid = fb_auth.verify_id_token(token)['uid']
+    except Exception as e:
+        print(f"persist: rejected ID token: {e}")
+        return None, ({'error': 'invalid Firebase ID token'}, 401)
+    chat_id, message_id = persist.get('chat_id'), persist.get('message_id')
+    if not chat_id or not message_id:
+        return None, ({'error': 'persist needs chat_id and message_id'}, 400)
+    store = TurnStore(uid, chat_id, message_id)
+    snapshot = store.msg_ref.get()
+    if not snapshot.exists:
+        return None, ({'error': 'reply not found'}, 404)
+    doc = snapshot.to_dict()
+    if doc.get('role') != 'assistant' or doc.get('isStreaming') is not True:
+        return None, ({'error': 'reply is not an open assistant placeholder'}, 409)
+    print(f"persist: uid={uid} chat={chat_id} message={message_id}")
+    return store, None
+
+
+def sse(event):
+    return f"data: {json.dumps(event)}\n\n"
+
+
+def error_text(e):
+    """The API's own message for an Anthropic API error ("...image exceeds 5 MB maximum..."), which
+    the reply bubble shows; str(e) for anything else."""
+    body = getattr(e, 'body', None)
+    if isinstance(body, dict) and isinstance(body.get('error'), dict) and body['error'].get('message'):
+        return body['error']['message']
+    return str(e)
+
+
+def run_turn(message_options, disable_thinking, enable_web_search, all_messages, emit, store):
+    """Run one assistant turn: stream from Claude, run the refusal retry chain, save progress and
+    the outcome with `store`, and hand each SSE event to `emit` (None ends the turn).
+
+    Runs on its own thread and never waits on the reader, so the turn finishes and saves even after
+    the browser goes away."""
+    model = message_options['model']
+    full_response = ''
+    thinking_content = ''
+    is_thinking = False
+    citations = []
+    web_search_queries = []
+    status = 'Thinking'
+
+    def set_status(new):
+        nonlocal status
+        if new != status:
+            status = new
+            emit({'type': 'status', 'status': new})
+        store.progress(full_response, status)
+
+    try:
+        store.progress(full_response, status)
+        with client.messages.stream(**message_options) as stream:
+            for event in stream:
+                if not hasattr(event, 'type'):
+                    continue
+
+                if event.type == 'content_block_start':
+                    if hasattr(event, 'content_block'):
+                        block_type = event.content_block.type
+                        if block_type == 'thinking':
+                            is_thinking = True
+                            set_status('Thinking')
+                        elif block_type == 'server_tool_use':
+                            print(f"Web search tool invoked: {getattr(event.content_block, 'name', '')}")
+                            set_status('Searching the web')
+                        elif block_type == 'web_search_tool_result':
+                            results = getattr(event.content_block, 'content', None)
+                            count = len(results) if isinstance(results, list) else 0
+                            print(f"Web search returned {count} results")
+                            set_status(f"Reading {count} search results")
+
+                elif event.type == 'content_block_delta':
+                    if hasattr(event, 'delta'):
+                        # ThinkingDelta: attribute is .thinking, not .text.
+                        # Opus 4.7 emits these when display='summarized'.
+                        if hasattr(event.delta, 'thinking'):
+                            thinking_content += event.delta.thinking
+                            store.progress(full_response, status)  # heartbeat while it thinks
+                        elif hasattr(event.delta, 'text'):
+                            text = event.delta.text
+                            if is_thinking:
+                                thinking_content += text
+                            else:
+                                full_response += text
+                                emit({'type': 'chunk', 'text': text})
+                                set_status(None)
+                        # partial_json deltas build the search query; it's read at content_block_stop
+
+                elif event.type == 'content_block_stop':
+                    if is_thinking:
+                        is_thinking = False
+                    block = stream.current_message_snapshot.content[event.index]
+                    query = block.input.get('query') if block.type == 'server_tool_use' and isinstance(block.input, dict) else None
+                    if query:
+                        set_status(f"Searching the web: {query}")
+
+            # Extract citations from the final message snapshot
+            final_message = stream.current_message_snapshot
+            for block in final_message.content:
+                if block.type == 'text' and hasattr(block, 'citations') and block.citations:
+                    for citation in block.citations:
+                        if hasattr(citation, 'url'):
+                            citations.append({
+                                'url': citation.url,
+                                'title': getattr(citation, 'title', ''),
+                                'cited_text': getattr(citation, 'cited_text', '')[:200]
+                            })
+                elif block.type == 'server_tool_use' and hasattr(block, 'input'):
+                    query = block.input.get('query', '') if isinstance(block.input, dict) else ''
+                    if query:
+                        web_search_queries.append(query)
+
+            # Get usage stats
+            usage = {
+                'input_tokens': final_message.usage.input_tokens,
+                'output_tokens': final_message.usage.output_tokens
+            }
+
+            if hasattr(final_message.usage, 'cache_creation_input_tokens'):
+                usage['cache_creation_tokens'] = final_message.usage.cache_creation_input_tokens
+            if hasattr(final_message.usage, 'cache_read_input_tokens'):
+                usage['cache_read_tokens'] = final_message.usage.cache_read_input_tokens
+            if hasattr(final_message.usage, 'server_tool_use') and final_message.usage.server_tool_use:
+                if hasattr(final_message.usage.server_tool_use, 'web_search_requests'):
+                    usage['web_search_requests'] = final_message.usage.server_tool_use.web_search_requests
+
+            # Deduplicate citations by URL
+            seen_urls = set()
+            unique_citations = []
+            for c in citations:
+                if c['url'] not in seen_urls:
+                    seen_urls.add(c['url'])
+                    unique_citations.append(c)
+
+            # Build done payload
+            done_payload = {
+                'type': 'done',
+                'content': full_response,
+                'thinking': thinking_content if thinking_content else None,
+                'usage': usage,
+                'cached': 'cache_read_tokens' in usage,
+                'model': model
+            }
+
+            if unique_citations:
+                done_payload['citations'] = unique_citations
+                print(f"Citations found: {len(unique_citations)}")
+            if web_search_queries:
+                done_payload['web_search_queries'] = web_search_queries
+                print(f"Search queries used: {web_search_queries}")
+            # Make the silent no-op visible. The hosted web_search tool fires far less often
+            # on Vertex than the prompts assume: across all 547 assistant messages in the
+            # starred book chats, ZERO carry citations, even though every one of those chats
+            # has enableWebSearch set. If this line dominates the logs, the "verify against
+            # words.hk" instruction in the prompts is decorative and should either be
+            # dropped or replaced with a forced retriever (see language-benchmarks
+            # engine/webfetch.py, verified 100% firing).
+            if enable_web_search and not web_search_queries:
+                print("Web search was ENABLED but the model never invoked it "
+                      "(0 queries, 0 citations)")
+
+            stop_reason = getattr(final_message, 'stop_reason', None)
+            print(f"Usage: {json.dumps(usage)} stop_reason={stop_reason} text_len={len(full_response)} thinking_len={len(thinking_content)}")
+            done_payload['stop_reason'] = stop_reason
+
+            # Helper: run a non-thinking attempt synchronously, return (text, stop_reason).
+            # Doesn't emit chunks — callers replace done_payload.content with the result.
+            def run_attempt(opts, label):
+                text = ''
+                with client.messages.stream(**opts) as s:
+                    for ev in s:
+                        store.progress(full_response, status)  # a retry can think for minutes
+                        if (getattr(ev, 'type', None) == 'content_block_delta'
+                                and hasattr(ev, 'delta')
+                                and hasattr(ev.delta, 'text')):
+                            text += ev.delta.text
+                    msg = s.current_message_snapshot
+                    sr = getattr(msg, 'stop_reason', None)
+                    u = {'input_tokens': msg.usage.input_tokens,
+                         'output_tokens': msg.usage.output_tokens}
+                    print(f"{label} usage: {json.dumps(u)} stop_reason={sr} text_len={len(text)}")
+                    return text, sr, u
+
+            # Refusal-aware retry chain (adapts based on initial config):
+            #   If thinking was OFF (e.g. Explain template):
+            #     retry 1: same model + add web search (no thinking)
+            #     retry 2: Sonnet, no thinking, no web
+            #   If thinking was ON (default):
+            #     retry 1: Opus 4.6 + adaptive thinking
+            #     retry 2: Sonnet, no thinking, minimal context
+            needs_retry = (stop_reason == 'refusal') or (not full_response.strip() and not disable_thinking)
+            if needs_retry:
+                try:
+                    if disable_thinking:
+                        # Path A: thinking-off retry chain
+                        # Retry 1: same model, add web search
+                        retry1_opts = dict(message_options)
+                        retry1_opts.pop('thinking', None)
+                        retry1_opts.pop('output_config', None)
+                        if 'tools' not in retry1_opts:
+                            retry1_opts['tools'] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
+                        set_status('Content filter triggered — retrying with web search')
+                        print(f"Refusal/empty — retry 1 (same model {model}, no thinking, + web search)")
+                        text2, stop2, usage2 = run_attempt(retry1_opts, f"Retry 1 ({model} + web)")
+
+                        done_payload['retry_used'] = True
+                        done_payload['retry_usage'] = usage2
+                        done_payload['retry_stop_reason'] = stop2
+                        done_payload['retry_model'] = model
+
+                        if stop2 == 'refusal':
+                            # Retry 2: Sonnet, no thinking, no web
+                            set_status('Still blocked — trying Sonnet')
+                            sonnet_opts = dict(message_options)
+                            sonnet_opts['model'] = MODEL_FAST
+                            sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
+                            sonnet_opts.pop('thinking', None)
+                            sonnet_opts.pop('output_config', None)
+                            sonnet_opts.pop('tools', None)
+                            print(f"Retry 1 also refused — retry 2 (Sonnet, no thinking, no web)")
+                            text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
+                            done_payload['retry2_usage'] = usage3
+                            done_payload['retry2_stop_reason'] = stop3
+                            done_payload['retry2_model'] = MODEL_FAST
+
+                            if stop3 == 'refusal':
+                                full_response = ("I wasn't able to process this image. "
+                                                 "It may have triggered a content filter. "
+                                                 "Try uploading a different photo, or start a new chat.")
+                                done_payload['gave_up'] = True
+                            else:
+                                full_response = text3
+                        else:
+                            full_response = text2
+                    else:
+                        # Path B: thinking-on retry chain (original)
+                        # Retry 1: the runner-up model with adaptive thinking
+                        retry_opts = dict(message_options)
+                        retry_opts['model'] = MODEL_RETRY
+                        retry_opts['thinking'] = {'type': 'adaptive'}
+                        retry_opts.pop('output_config', None)
+                        set_status('Content filter triggered — retrying with a different model')
+                        print(f"Refusal/empty — retry 1 ({MODEL_RETRY}, adaptive thinking, full context)")
+                        text2, stop2, usage2 = run_attempt(retry_opts, f"Retry 1 ({MODEL_RETRY})")
+
+                        done_payload['retry_used'] = True
+                        done_payload['retry_usage'] = usage2
+                        done_payload['retry_stop_reason'] = stop2
+                        done_payload['retry_model'] = MODEL_RETRY
+
+                        if stop2 == 'refusal':
+                            # Retry 2: Sonnet, no thinking, minimal context
+                            set_status('Still blocked — trying a faster model')
+                            minimal_msgs = []
+                            if all_messages:
+                                if all_messages[0].get('role') == 'user':
+                                    minimal_msgs.append(all_messages[0])
+                                if len(all_messages) > 1:
+                                    minimal_msgs.append(all_messages[-1])
+                            sonnet_opts = dict(retry_opts)
+                            sonnet_opts['model'] = MODEL_FAST
+                            sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
+                            sonnet_opts['messages'] = minimal_msgs
+                            sonnet_opts.pop('thinking', None)
+                            print(f"Retry 1 also refused — retry 2 (Sonnet, minimal context: {len(minimal_msgs)} msgs)")
+                            text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
+                            done_payload['retry2_usage'] = usage3
+                            done_payload['retry2_stop_reason'] = stop3
+                            done_payload['retry2_model'] = MODEL_FAST
+
+                            if stop3 == 'refusal':
+                                full_response = ("I wasn't able to process this image. "
+                                                 "It may have triggered a content filter. "
+                                                 "Try uploading a different photo, or start a new chat.")
+                                done_payload['gave_up'] = True
+                            else:
+                                full_response = text3
+                        else:
+                            full_response = text2
+
+                    done_payload['content'] = full_response
+                except Exception as retry_err:
+                    print(f"Retry chain failed: {retry_err}")
+                    if not full_response.strip():
+                        full_response = ("I wasn't able to get a response. Please try again.")
+                        done_payload['content'] = full_response
+
+            store.finish(done_payload['content'], thinking=done_payload['thinking'],
+                         citations=done_payload.get('citations'), model=done_payload['model'])
+            emit(done_payload)
+
+    except Exception as e:
+        print(f"Streaming error: {str(e)}")
+        message = error_text(e)
+        try:
+            store.fail(message, full_response)
+        except Exception as save_err:
+            print(f"persist: could not save the error: {save_err}")
+        emit({'type': 'error', 'error': message})
+    finally:
+        emit(None)
+
+
 @functions_framework.http
 @cross_origin()
 def chat(request):
@@ -225,6 +613,9 @@ def chat(request):
     - disable_thinking: (optional) Boolean to disable thinking mode
     - use_fast_model: (optional) Boolean to use Sonnet instead of Opus
     - enable_web_search: (optional) Boolean to enable web search tool
+    - persist: (optional) {chat_id, message_id} of the caller's open placeholder reply. The function
+      then saves the reply to Firestore itself (see TurnStore). Needs `Authorization: Bearer <Firebase
+      ID token>`; the uid comes from the token.
     """
 
     # Handle preflight requests
@@ -232,7 +623,7 @@ def chat(request):
         headers = {
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'POST',
-            'Access-Control-Allow-Headers': 'Content-Type',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization',
             'Access-Control-Max-Age': '3600'
         }
         return ('', 204, headers)
@@ -271,6 +662,14 @@ def chat(request):
         disable_thinking = request_json.get('disable_thinking', False)
         use_fast_model = request_json.get('use_fast_model', False)
         enable_web_search = request_json.get('enable_web_search', False)
+
+        # persist: check the caller owns the placeholder before any model or Storage work
+        store = NoStore()
+        if request_json.get('persist'):
+            store, failure = open_turn_store(request, request_json['persist'])
+            if failure:
+                print(f"persist refused: {failure}")
+                return failure
 
         # Select model and set per-model max output tokens
         model = MODEL_FAST if use_fast_model else MODEL_DEFAULT
@@ -475,257 +874,37 @@ def chat(request):
                 system_content['cache_control'] = {'type': 'ephemeral'}
             message_options['system'] = [system_content]
 
-        # Create a generator for streaming response
-        def generate():
-            full_response = ''
-            thinking_content = ''
-            is_thinking = False
-            citations = []
-            web_search_queries = []
-            current_block_type = None
+        # Run the turn on a worker thread and relay its events. The worker saves the reply when the
+        # caller asked for persist, and keeps going if the browser stops reading.
+        turn_events = queue.Queue()
+        worker = threading.Thread(
+            target=run_turn, name='turn',
+            args=(message_options, disable_thinking, enable_web_search, all_messages,
+                  turn_events.put, store))
+        worker.start()
 
+        def relay():
+            """Send a status at once, so the browser gets the response headers before the model's
+            first sentence (158 s into a web-search turn on 2026-10-16), then each event the worker
+            emits, and an SSE comment after HEARTBEAT_SECONDS of silence. If the browser goes away,
+            joining the worker keeps this request open until the reply is saved."""
             try:
-                with client.messages.stream(**message_options) as stream:
-                    for event in stream:
-                        if not hasattr(event, 'type'):
-                            continue
-
-                        if event.type == 'content_block_start':
-                            if hasattr(event, 'content_block'):
-                                current_block_type = event.content_block.type
-                                if current_block_type == 'thinking':
-                                    is_thinking = True
-                                elif current_block_type == 'server_tool_use':
-                                    # Log the search query
-                                    if hasattr(event.content_block, 'name'):
-                                        print(f"Web search tool invoked: {event.content_block.name}")
-                                elif current_block_type == 'web_search_tool_result':
-                                    # Search results received
-                                    if hasattr(event.content_block, 'content') and event.content_block.content:
-                                        result_count = len(event.content_block.content)
-                                        print(f"Web search returned {result_count} results")
-
-                        elif event.type == 'content_block_delta':
-                            if hasattr(event, 'delta'):
-                                # ThinkingDelta: attribute is .thinking, not .text.
-                                # Opus 4.7 emits these when display='summarized'.
-                                if hasattr(event.delta, 'thinking'):
-                                    thinking_content += event.delta.thinking
-                                elif hasattr(event.delta, 'text'):
-                                    text = event.delta.text
-                                    if is_thinking:
-                                        thinking_content += text
-                                    else:
-                                        full_response += text
-                                        yield f"data: {json.dumps({'type': 'chunk', 'text': text})}\n\n"
-                                elif hasattr(event.delta, 'partial_json'):
-                                    # This is the search query being built
-                                    pass
-
-                        elif event.type == 'content_block_stop':
-                            if is_thinking:
-                                is_thinking = False
-                            current_block_type = None
-
-                    # Extract citations from the final message snapshot
-                    final_message = stream.current_message_snapshot
-                    for block in final_message.content:
-                        if block.type == 'text' and hasattr(block, 'citations') and block.citations:
-                            for citation in block.citations:
-                                if hasattr(citation, 'url'):
-                                    citations.append({
-                                        'url': citation.url,
-                                        'title': getattr(citation, 'title', ''),
-                                        'cited_text': getattr(citation, 'cited_text', '')[:200]
-                                    })
-                        elif block.type == 'server_tool_use' and hasattr(block, 'input'):
-                            query = block.input.get('query', '') if isinstance(block.input, dict) else ''
-                            if query:
-                                web_search_queries.append(query)
-
-                    # Get usage stats
-                    usage = {
-                        'input_tokens': final_message.usage.input_tokens,
-                        'output_tokens': final_message.usage.output_tokens
-                    }
-
-                    if hasattr(final_message.usage, 'cache_creation_input_tokens'):
-                        usage['cache_creation_tokens'] = final_message.usage.cache_creation_input_tokens
-                    if hasattr(final_message.usage, 'cache_read_input_tokens'):
-                        usage['cache_read_tokens'] = final_message.usage.cache_read_input_tokens
-                    if hasattr(final_message.usage, 'server_tool_use') and final_message.usage.server_tool_use:
-                        if hasattr(final_message.usage.server_tool_use, 'web_search_requests'):
-                            usage['web_search_requests'] = final_message.usage.server_tool_use.web_search_requests
-
-                    # Deduplicate citations by URL
-                    seen_urls = set()
-                    unique_citations = []
-                    for c in citations:
-                        if c['url'] not in seen_urls:
-                            seen_urls.add(c['url'])
-                            unique_citations.append(c)
-
-                    # Build done payload
-                    done_payload = {
-                        'type': 'done',
-                        'content': full_response,
-                        'thinking': thinking_content if thinking_content else None,
-                        'usage': usage,
-                        'cached': 'cache_read_tokens' in usage,
-                        'model': model
-                    }
-
-                    if unique_citations:
-                        done_payload['citations'] = unique_citations
-                        print(f"Citations found: {len(unique_citations)}")
-                    if web_search_queries:
-                        done_payload['web_search_queries'] = web_search_queries
-                        print(f"Search queries used: {web_search_queries}")
-                    # Make the silent no-op visible. The hosted web_search tool fires far less often
-                    # on Vertex than the prompts assume: across all 547 assistant messages in the
-                    # starred book chats, ZERO carry citations, even though every one of those chats
-                    # has enableWebSearch set. If this line dominates the logs, the "verify against
-                    # words.hk" instruction in the prompts is decorative and should either be
-                    # dropped or replaced with a forced retriever (see language-benchmarks
-                    # engine/webfetch.py, verified 100% firing).
-                    if enable_web_search and not web_search_queries:
-                        print("Web search was ENABLED but the model never invoked it "
-                              "(0 queries, 0 citations)")
-
-                    stop_reason = getattr(final_message, 'stop_reason', None)
-                    print(f"Usage: {json.dumps(usage)} stop_reason={stop_reason} text_len={len(full_response)} thinking_len={len(thinking_content)}")
-                    done_payload['stop_reason'] = stop_reason
-
-                    # Helper: run a non-thinking attempt synchronously, return (text, stop_reason).
-                    # Doesn't yield chunks — callers replace done_payload.content with the result.
-                    def run_attempt(opts, label):
-                        text = ''
-                        with client.messages.stream(**opts) as s:
-                            for ev in s:
-                                if (getattr(ev, 'type', None) == 'content_block_delta'
-                                        and hasattr(ev, 'delta')
-                                        and hasattr(ev.delta, 'text')):
-                                    text += ev.delta.text
-                            msg = s.current_message_snapshot
-                            sr = getattr(msg, 'stop_reason', None)
-                            u = {'input_tokens': msg.usage.input_tokens,
-                                 'output_tokens': msg.usage.output_tokens}
-                            print(f"{label} usage: {json.dumps(u)} stop_reason={sr} text_len={len(text)}")
-                            return text, sr, u
-
-                    # Refusal-aware retry chain (adapts based on initial config):
-                    #   If thinking was OFF (e.g. Explain template):
-                    #     retry 1: same model + add web search (no thinking)
-                    #     retry 2: Sonnet, no thinking, no web
-                    #   If thinking was ON (default):
-                    #     retry 1: Opus 4.6 + adaptive thinking
-                    #     retry 2: Sonnet, no thinking, minimal context
-                    needs_retry = (stop_reason == 'refusal') or (not full_response.strip() and not disable_thinking)
-                    if needs_retry:
-                        try:
-                            if disable_thinking:
-                                # Path A: thinking-off retry chain
-                                # Retry 1: same model, add web search
-                                retry1_opts = dict(message_options)
-                                retry1_opts.pop('thinking', None)
-                                retry1_opts.pop('output_config', None)
-                                if 'tools' not in retry1_opts:
-                                    retry1_opts['tools'] = [{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}]
-                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': model, 'reason': 'Content filter triggered — retrying with web search'})}\n\n"
-                                print(f"Refusal/empty — retry 1 (same model {model}, no thinking, + web search)")
-                                text2, stop2, usage2 = run_attempt(retry1_opts, f"Retry 1 ({model} + web)")
-
-                                done_payload['retry_used'] = True
-                                done_payload['retry_usage'] = usage2
-                                done_payload['retry_stop_reason'] = stop2
-                                done_payload['retry_model'] = model
-
-                                if stop2 == 'refusal':
-                                    # Retry 2: Sonnet, no thinking, no web
-                                    yield f"data: {json.dumps({'type': 'retry', 'attempt': 2, 'model': MODEL_FAST, 'reason': 'Still blocked — trying Sonnet'})}\n\n"
-                                    sonnet_opts = dict(message_options)
-                                    sonnet_opts['model'] = MODEL_FAST
-                                    sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
-                                    sonnet_opts.pop('thinking', None)
-                                    sonnet_opts.pop('output_config', None)
-                                    sonnet_opts.pop('tools', None)
-                                    print(f"Retry 1 also refused — retry 2 (Sonnet, no thinking, no web)")
-                                    text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
-                                    done_payload['retry2_usage'] = usage3
-                                    done_payload['retry2_stop_reason'] = stop3
-                                    done_payload['retry2_model'] = MODEL_FAST
-
-                                    if stop3 == 'refusal':
-                                        full_response = ("I wasn't able to process this image. "
-                                                         "It may have triggered a content filter. "
-                                                         "Try uploading a different photo, or start a new chat.")
-                                        done_payload['gave_up'] = True
-                                    else:
-                                        full_response = text3
-                                else:
-                                    full_response = text2
-                            else:
-                                # Path B: thinking-on retry chain (original)
-                                # Retry 1: the runner-up model with adaptive thinking
-                                retry_opts = dict(message_options)
-                                retry_opts['model'] = MODEL_RETRY
-                                retry_opts['thinking'] = {'type': 'adaptive'}
-                                retry_opts.pop('output_config', None)
-                                yield f"data: {json.dumps({'type': 'retry', 'attempt': 1, 'model': MODEL_RETRY, 'reason': 'Content filter triggered — retrying with a different model'})}\n\n"
-                                print(f"Refusal/empty — retry 1 ({MODEL_RETRY}, adaptive thinking, full context)")
-                                text2, stop2, usage2 = run_attempt(retry_opts, f"Retry 1 ({MODEL_RETRY})")
-
-                                done_payload['retry_used'] = True
-                                done_payload['retry_usage'] = usage2
-                                done_payload['retry_stop_reason'] = stop2
-                                done_payload['retry_model'] = MODEL_RETRY
-
-                                if stop2 == 'refusal':
-                                    # Retry 2: Sonnet, no thinking, minimal context
-                                    yield f"data: {json.dumps({'type': 'retry', 'attempt': 2, 'model': MODEL_FAST, 'reason': 'Still blocked — trying a faster model'})}\n\n"
-                                    minimal_msgs = []
-                                    if all_messages:
-                                        if all_messages[0].get('role') == 'user':
-                                            minimal_msgs.append(all_messages[0])
-                                        if len(all_messages) > 1:
-                                            minimal_msgs.append(all_messages[-1])
-                                    sonnet_opts = dict(retry_opts)
-                                    sonnet_opts['model'] = MODEL_FAST
-                                    sonnet_opts['max_tokens'] = MAX_TOKENS_SONNET
-                                    sonnet_opts['messages'] = minimal_msgs
-                                    sonnet_opts.pop('thinking', None)
-                                    print(f"Retry 1 also refused — retry 2 (Sonnet, minimal context: {len(minimal_msgs)} msgs)")
-                                    text3, stop3, usage3 = run_attempt(sonnet_opts, "Retry 2 (Sonnet)")
-                                    done_payload['retry2_usage'] = usage3
-                                    done_payload['retry2_stop_reason'] = stop3
-                                    done_payload['retry2_model'] = MODEL_FAST
-
-                                    if stop3 == 'refusal':
-                                        full_response = ("I wasn't able to process this image. "
-                                                         "It may have triggered a content filter. "
-                                                         "Try uploading a different photo, or start a new chat.")
-                                        done_payload['gave_up'] = True
-                                    else:
-                                        full_response = text3
-                                else:
-                                    full_response = text2
-
-                            done_payload['content'] = full_response
-                        except Exception as retry_err:
-                            print(f"Retry chain failed: {retry_err}")
-                            if not full_response.strip():
-                                full_response = ("I wasn't able to get a response. Please try again.")
-                                done_payload['content'] = full_response
-
-                    yield f"data: {json.dumps(done_payload)}\n\n"
-
-            except Exception as e:
-                print(f"Streaming error: {str(e)}")
-                yield f"data: {json.dumps({'type': 'error', 'error': str(e)})}\n\n"
+                yield sse({'type': 'status', 'status': 'Thinking'})
+                while True:
+                    try:
+                        event = turn_events.get(timeout=HEARTBEAT_SECONDS)
+                    except queue.Empty:
+                        yield ': keepalive\n\n'
+                        continue
+                    if event is None:
+                        break
+                    yield sse(event)
+            finally:
+                worker.join()
 
         # Return streaming response with proper headers
         from flask import Response
-        return Response(generate(), mimetype='text/event-stream', headers={
+        return Response(relay(), mimetype='text/event-stream', headers={
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no'
         })
