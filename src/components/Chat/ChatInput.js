@@ -5,18 +5,24 @@ import React, { useState, useRef, useEffect } from 'react';
 // stay under 3.75 MB (3,750,000 bytes, which encodes to 5.0 MB).
 const MAX_IMAGE_BYTES = 3750000;
 
+// Claude Opus 5 (and every Claude 4.7+ model) downscales an image past 2576 px on the long edge
+// before reading it, so a re-encode never needs to keep more than that.
+const CLAUDE_MAX_EDGE = 2576;
+
 /**
- * Return `file` as-is when it fits; otherwise re-encode it as JPEG, stepping the long edge down
- * until it fits. A pasted full-screen screenshot is a PNG that can pass the limit, and an
- * oversized image stays in the chat history, so every later turn in that chat would fail too.
+ * Return `file` as-is when it fits; otherwise re-encode it as JPEG at up to CLAUDE_MAX_EDGE on
+ * the long edge, stepping down only if it still doesn't fit. A pasted full-screen screenshot is
+ * a PNG that can pass the limit, and an oversized image stays in the chat history, so every
+ * later turn in that chat would fail too.
  */
 async function fitImage(file) {
   if (file.size <= MAX_IMAGE_BYTES) return file;
   const bitmap = await createImageBitmap(file);
   const longEdge = Math.max(bitmap.width, bitmap.height);
   const base = file.name.includes('.') ? file.name.slice(0, file.name.lastIndexOf('.')) : file.name;
+  const top = Math.min(longEdge, CLAUDE_MAX_EDGE);
   let blob = null;
-  for (const edge of [longEdge, 3072, 2048, 1568, 1024].filter((e) => e <= longEdge)) {
+  for (const edge of [top, ...[2048, 1568, 1024].filter((e) => e < top)]) {
     const scale = edge / longEdge;
     const canvas = document.createElement('canvas');
     canvas.width = Math.round(bitmap.width * scale);

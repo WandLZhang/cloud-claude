@@ -15,7 +15,7 @@ const CASES = [
   { name: 'text only', text: '你好 paste test', expectPreview: null, expectText: '你好 paste test' },
   { name: 'image + html (Chrome "Copy image")', image: true, html: '<img src="https://example.com/a.png">', expectPreview: 'image/png', expectText: '' },
   { name: 'image + text (Office selection, Firefox "Copy Image")', image: true, text: 'Q3 totals', expectPreview: 'image/png', expectText: 'Q3 totals' },
-  { name: 'large screenshot (2400x1600 noise PNG)', image: true, noise: [2400, 1600], expectPreview: 'image/jpeg', expectText: '' },
+  { name: 'large screenshot (3200x2000 noise PNG)', image: true, noise: [3200, 2000], expectPreview: 'image/jpeg', expectText: '', expectMaxEdge: 2576 },
 ];
 
 function dataUrlBytes(src) {
@@ -73,12 +73,14 @@ async function runCase(browser, c) {
   const src = preview ? await preview.getAttribute('src') : null;
   const text = await page.inputValue('textarea.chat-input');
   const bytes = src ? dataUrlBytes(src) : 0;
+  const [w, h] = preview ? await preview.evaluate((img) => [img.naturalWidth, img.naturalHeight]) : [0, 0];
   const previewOk = c.expectPreview
     ? !!src && src.startsWith(`data:${c.expectPreview}`) && bytes <= MAX_IMAGE_BYTES
+      && (!c.expectMaxEdge || Math.max(w, h) <= c.expectMaxEdge)
     : !preview;
   const ok = previewOk && text === c.expectText;
   const pasted = pastedBytes ? ` pasted ${(pastedBytes / 1e6).toFixed(2)} MB ->` : '';
-  const shown = src ? `${src.slice(5, src.indexOf(';'))} ${(bytes / 1e6).toFixed(2)} MB` : 'none';
+  const shown = src ? `${src.slice(5, src.indexOf(';'))} ${w}x${h} ${(bytes / 1e6).toFixed(2)} MB` : 'none';
   console.log(`${ok ? 'PASS' : 'FAIL'} ${c.name}:${pasted} preview=${shown} textarea=${JSON.stringify(text)}`);
   await context.close();
   return ok;
