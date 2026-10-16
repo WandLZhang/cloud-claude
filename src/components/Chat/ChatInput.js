@@ -1,5 +1,40 @@
 import React, { useState, useRef, useEffect } from 'react';
 
+// Claude rejects an image whose base64 passes 5 MiB ("image exceeds 5 MB maximum": a 4.5 MB PNG
+// failed, a 3.6 MB one passed, 2026-10-16). Base64 adds a third, so files stay under 3.75 MB.
+const MAX_IMAGE_BYTES = 3.75 * 1024 * 1024;
+
+/**
+ * Return `file` as-is when it fits; otherwise re-encode it as JPEG, stepping the long edge down
+ * until it fits. A pasted full-screen screenshot is a PNG that can pass the limit, and an
+ * oversized image stays in the chat history, so every later turn in that chat would fail too.
+ */
+async function fitImage(file) {
+  if (file.size <= MAX_IMAGE_BYTES) return file;
+  const bitmap = await createImageBitmap(file);
+  const longEdge = Math.max(bitmap.width, bitmap.height);
+  const base = file.name.includes('.') ? file.name.slice(0, file.name.lastIndexOf('.')) : file.name;
+  let blob = null;
+  for (const edge of [longEdge, 3072, 2048, 1568, 1024].filter((e) => e <= longEdge)) {
+    const scale = edge / longEdge;
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#ffffff'; // JPEG has no alpha; transparent pixels would turn black
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', 0.85));
+    if (blob && blob.size <= MAX_IMAGE_BYTES) break;
+  }
+  const fitted = new File([blob], `${base}.jpg`, { type: 'image/jpeg' });
+  console.log('[ChatInput] image re-encoded to fit the 5 MB limit:', {
+    from: { name: file.name, type: file.type, size: file.size, width: bitmap.width, height: bitmap.height },
+    to: { name: fitted.name, type: fitted.type, size: fitted.size },
+  });
+  return fitted;
+}
+
 function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Type your message...", value = '', defaultWebSearch = false }) {
   const [message, setMessage] = useState(value);
   const [selectedImage, setSelectedImage] = useState(null);
@@ -115,19 +150,25 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
       reader.readAsDataURL(file);
     } else if (file.type.startsWith('image/')) {
       // Handle image
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setSelectedImage({
-          file,
-          url: e.target.result,
-          type: file.type
-        });
-        setSelectedDocument(null); // Can't have both at once
+      const readImage = (img) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setSelectedImage({
+            file: img,
+            url: e.target.result,
+            type: img.type
+          });
+          setSelectedDocument(null); // Can't have both at once
+        };
+        reader.onerror = () => {
+          alert('Unable to read this image. If it\'s from Google Photos or another cloud service, please download it to your device first.');
+        };
+        reader.readAsDataURL(img);
       };
-      reader.onerror = () => {
-        alert('Unable to read this image. If it\'s from Google Photos or another cloud service, please download it to your device first.');
-      };
-      reader.readAsDataURL(file);
+      fitImage(file).then(readImage).catch((err) => {
+        console.error('[ChatInput] could not shrink image, sending original:', err);
+        readImage(file);
+      });
     }
   };
 
@@ -296,6 +337,25 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
     if (file) {
       handleFileSelect(file);
     }
+  };
+
+  // A screenshot or a copied image reaches the clipboard as a file, and a textarea ignores files.
+  // Attach it the same way as a drop. Text from the same copy (an Office selection carries both)
+  // still pastes into the box through the browser's default handling.
+  const handlePaste = (e) => {
+    const data = e.clipboardData;
+    if (!data) return;
+    const isAttachable = (f) => f && (f.type.startsWith('image/') || f.type === 'application/pdf');
+    const file = Array.from(data.files || []).find(isAttachable)
+      || Array.from(data.items || [])
+        .filter((item) => item.kind === 'file')
+        .map((item) => item.getAsFile())
+        .find(isAttachable);
+    console.log('[ChatInput] paste:', {
+      types: Array.from(data.types || []),
+      file: file ? { name: file.name, type: file.type, size: file.size } : null,
+    });
+    if (file) handleFileSelect(file);
   };
 
   return (
@@ -602,6 +662,7 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             onKeyDown={handleKeyDown}
+            onPaste={handlePaste}
             placeholder={placeholder}
             disabled={disabled}
             className="chat-input"
