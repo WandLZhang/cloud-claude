@@ -5,7 +5,7 @@
 const { chromium } = require('@playwright/test');
 
 const APP_URL = process.env.APP_URL || 'http://localhost:3099/';
-const MAX_IMAGE_BYTES = 3.75 * 1024 * 1024; // ChatInput's limit; Claude rejects base64 over 5 MiB
+const MAX_IMAGE_BYTES = 3750000; // ChatInput's limit; Claude rejects base64 over 5 MiB
 
 // Each case puts one clipboard shape on the clipboard, presses Ctrl+V in the textarea, and
 // states what should show: an image preview (of what type), the textarea text, or both.

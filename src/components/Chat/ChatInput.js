@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-// Claude rejects an image whose base64 passes 5 MiB ("image exceeds 5 MB maximum": a 4.5 MB PNG
-// failed, a 3.6 MB one passed, 2026-10-16). Base64 adds a third, so files stay under 3.75 MB.
-const MAX_IMAGE_BYTES = 3.75 * 1024 * 1024;
+// Claude rejects an image whose base64 passes 5 MiB, 5,242,880 bytes ("image exceeds 5 MB
+// maximum": a 4.5 MB PNG failed, a 3.6 MB one passed, 2026-10-16). Base64 adds a third, so files
+// stay under 3.75 MB (3,750,000 bytes, which encodes to 5.0 MB).
+const MAX_IMAGE_BYTES = 3750000;
 
 /**
  * Return `file` as-is when it fits; otherwise re-encode it as JPEG, stepping the long edge down
