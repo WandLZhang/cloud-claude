@@ -797,11 +797,28 @@ body {
   height: 30px;
 }
 
-/* Composer: one row. Smaller tool buttons leave the text more width on a phone. */
+/* Composer: the tools, the text and Send in one row. */
 .composer-tools {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+}
+
+/* Phones: the four tools stack two by two, and the text gets the width they used. In one row
+   at 120% page zoom, "Message Claude..." had 89 px and wrapped. The text box matches the
+   two rows' height, and its first line sits level with the top row. */
+@media (max-width: 768px) {
+  .composer-tools {
+    display: grid;
+    grid-template-columns: repeat(2, 34px);
+    grid-auto-rows: 34px;
+  }
+
+  .chat-input {
+    min-height: 68px;
+    padding: 7px 8px;
+    line-height: 20px;
+  }
 }
 
 .icon-button.composer-tool {
@@ -826,7 +843,7 @@ body {
   flex-shrink: 0;
   width: 36px;
   height: 36px;
-  margin: 0 2px 2px 0;
+  margin: 0;   /* 4 px from the composer's right and bottom edges, as the tools are from its left and bottom */
   padding: 0;
   border: none;
   border-radius: 50%;

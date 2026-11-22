@@ -66,6 +66,36 @@ const recordFrames = () => {
   requestAnimationFrame(tick);
 };
 
+// The composer's tools (rows and columns), its text box, and the room its placeholder needs.
+function composerLayout(page) {
+  return page.evaluate(() => {
+    const tools = Array.from(document.querySelectorAll('.composer-tools .composer-tool')).map((b) => b.getBoundingClientRect());
+    const ta = document.querySelector('textarea.chat-input');
+    const cs = getComputedStyle(ta);
+    const ctx = document.createElement('canvas').getContext('2d');
+    ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+    const box = ta.getBoundingClientRect();
+    const mid = (r) => (r.top + r.bottom) / 2;
+    const send = document.querySelector('.send-button').getBoundingClientRect();
+    const wrapper = document.querySelector('.input-wrapper').getBoundingClientRect();
+    return {
+      sendOffset: Math.round((mid(send) - Math.max(...tools.map(mid))) * 10) / 10,
+      sendRightGap: Math.round(wrapper.right - send.right),
+      toolsLeftGap: Math.round(Math.min(...tools.map((r) => r.left)) - wrapper.left),
+      toolRows: new Set(tools.map((r) => Math.round(r.top))).size,
+      toolCols: new Set(tools.map((r) => Math.round(r.left))).size,
+      textBox: Math.round(box.width),
+      textRoom: Math.round(ta.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
+      placeholderNeeds: Math.ceil(ctx.measureText(ta.placeholder).width),
+      textBoxHeight: Math.round(box.height),
+      toolsHeight: Math.round(document.querySelector('.composer-tools').getBoundingClientRect().height),
+    };
+  });
+}
+
+// Send sits level with the lower row of tools, as far from the right edge as the tools are from the left.
+const sendAligned = (c) => Math.abs(c.sendOffset) <= 1.5 && Math.abs(c.sendRightGap - c.toolsLeftGap) <= 1;
+
 // Wait until the last reply has finished (its footer shows); returns the reply count.
 async function waitForLatestReply(page, timeoutMs = 180000) {
   await page.waitForSelector('.message-assistant:last-child .reply-footer, .message-assistant .reply-footer', { timeout: timeoutMs });
@@ -105,6 +135,8 @@ function noisePng(page) {
   check('sidebar top row has New chat and Starred; the bottom button is gone', desktop.topRow.every(Boolean) && !desktop.bottomButton, desktop);
   await page.keyboard.press('Control+K');
   check('Ctrl+K focuses search', await page.evaluate(() => document.activeElement?.classList.contains('search-input')), {});
+  const deskComposer = await composerLayout(page);
+  check('the desktop composer keeps its tools in one row, with Send level with them', deskComposer.toolRows === 1 && deskComposer.toolCols === 4 && sendAligned(deskComposer), deskComposer);
   await page.keyboard.press('Escape');
   await page.click('textarea.chat-input');
 
@@ -286,6 +318,11 @@ function noisePng(page) {
     };
   });
   check('the phone header shows on home with the app name and theme toggle', home.headerShown && home.title === 'Cloud Claude' && home.themeInHeader && !home.floatingToggle, home);
+  const phoneComposer = await composerLayout(page);
+  check('the phone composer stacks its tools two by two, and the text box fills their height with its placeholder on one line',
+    phoneComposer.toolRows === 2 && phoneComposer.toolCols === 2 && phoneComposer.textRoom >= phoneComposer.placeholderNeeds
+    && Math.abs(phoneComposer.textBoxHeight - phoneComposer.toolsHeight) <= 2, phoneComposer);
+  check('on a phone, Send sits level with the lower row of tools, mirroring their edge gap', sendAligned(phoneComposer), phoneComposer);
   await page.screenshot({ path: `${OUT}/ui-phone-home.png` });
 
   await page.click('.mobile-header button[aria-label="Open sidebar"]');
@@ -306,7 +343,7 @@ function noisePng(page) {
     !!phone.title && phone.title.startsWith(sidebarStem) && phone.actions.includes('New chat') && phone.actions.some((a) => a.includes('tar chat')),
     { ...phone, sidebarTitle: chatTitle });
   check('code tools show without hover on a touch screen', phone.codeToolsOpacity === '1', phone);
-  check('the composer leaves the text at least 150 px on a phone', phone.textareaWidth >= 150, phone);
+  check('the composer leaves the text at least 220 px on a phone', phone.textareaWidth >= 220, phone);
   await page.click('.mobile-header button[aria-label="Star chat"]');
   await page.waitForSelector('.mobile-header button[aria-label="Unstar chat"]', { timeout: 10000 });
   const starAfterTap = await page.evaluate(() => {
@@ -316,6 +353,13 @@ function noisePng(page) {
   check('the header star fills when tapped and leaves no hover mark',
     starAfterTap.filled && starAfterTap.background === 'rgba(0, 0, 0, 0)' && starAfterTap.hoverCircle === '0px', starAfterTap);
   await page.screenshot({ path: `${OUT}/ui-phone-chat.png` });
+  await context.close();
+
+  // A 411 px phone in Chrome at 120% page zoom lays the page out 343 px wide.
+  ({ context, page } = await signedIn(browser, { viewport: { width: 343, height: 760 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }));
+  const zoomedComposer = await composerLayout(page);
+  check('at 120% zoom the placeholder still fits on one line', zoomedComposer.toolRows === 2 && zoomedComposer.textRoom >= zoomedComposer.placeholderNeeds, zoomedComposer);
+  await page.screenshot({ path: `${OUT}/ui-phone-zoomed-home.png` });
   await context.close();
 
   await browser.close();
