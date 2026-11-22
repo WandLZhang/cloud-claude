@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter } from 'react-router-dom';
 import { auth } from './services/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
-import ChatInterface from './components/Chat/ChatInterface';
+import AppRoutes from './AppRoutes';
 import SignIn from './components/Auth/SignIn';
 import LoadingSpinner from './components/Common/LoadingSpinner';
 import './App.css';
@@ -63,30 +63,7 @@ function App() {
   return (
     <BrowserRouter>
       <div className="app-container">
-        <Routes>
-          <Route path="/" element={
-            <ChatInterface 
-              user={user} 
-              onThemeToggle={toggleTheme} 
-              theme={theme} 
-            />
-          } />
-          <Route path="/chat/:chatId" element={
-            <ChatInterface 
-              user={user} 
-              onThemeToggle={toggleTheme} 
-              theme={theme} 
-            />
-          } />
-          <Route path="/starred" element={
-            <ChatInterface 
-              user={user} 
-              onThemeToggle={toggleTheme} 
-              theme={theme} 
-            />
-          } />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <AppRoutes user={user} onThemeToggle={toggleTheme} theme={theme} />
       </div>
     </BrowserRouter>
   );

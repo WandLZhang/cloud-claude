@@ -5,6 +5,7 @@ import ChatInput from './ChatInput';
 import ChatSidebar from './ChatSidebar';
 import HomePage from '../Home/HomePage';
 import StarredChats from './StarredChats';
+import LoadingSpinner from '../Common/LoadingSpinner';
 import { useChat } from '../../hooks/useChat';
 import { useFirestore } from '../../hooks/useFirestore';
 import { updateMessage, deleteMessage, touchChatOpened } from '../../services/firebase';
@@ -17,13 +18,23 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [viewMode, setViewMode] = useState('home'); // 'home', 'chat', 'starred'
+  const [pendingChat, setPendingChat] = useState(null); // a chat opened before the chat list has it
   const [targetMessageId, setTargetMessageId] = useState(null);
   const [scrollTrigger, setScrollTrigger] = useState(0);
   const messagesEndRef = useRef(null);
 
-  const { userChats, currentChat, clearCurrentChat, selectChat, createNewChat } = useFirestore(user.uid);
-  
+  const { userChats, loading: chatsLoading, createNewChat } = useFirestore(user.uid);
+
+  // The URL alone decides the view and the open chat. React Router applies each navigation
+  // inside startTransition, after ordinary state updates. A view kept in its own state could be
+  // reset by a render that still saw the old URL: sending from the home page left you on the
+  // home page while the reply streamed into the new chat.
+  const viewMode = location.pathname === '/starred' ? 'starred' : chatId ? 'chat' : 'home';
+  const currentChat = useMemo(() => {
+    if (!chatId) return null;
+    return userChats.find((c) => c.id === chatId) || (pendingChat?.id === chatId ? pendingChat : null);
+  }, [chatId, userChats, pendingChat]);
+
   // Extract chat config from currentChat (e.g., disableThinking for "Everyday Chinese" chats)
   // Use useMemo to prevent creating new object reference on every render (avoids infinite loop)
   const currentChatConfig = useMemo(() => {
@@ -35,7 +46,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     return config;
   }, [currentChat?.disableThinking, currentChat?.useFastModel, currentChat?.enableWebSearch, currentChat?.systemPrompt]);
   
-  const { messages, sendMessage, loading, switchChat } = useChat(user.uid, currentChat?.id, currentChatConfig);
+  const { messages, sendMessage, loading, switchChat } = useChat(user.uid, chatId, currentChatConfig);
   const previousMessagesLength = useRef(0);
   const isStreamingRef = useRef(false);
 
@@ -227,21 +238,16 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   }, [user?.uid, currentChat?.id, loading, isThinking, messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleNewChat = () => {
-    // Clear current chat to go back to home page
-    clearCurrentChat();
     setSidebarOpen(false);
-    setViewMode('home');
     navigate('/');
   };
 
   const handleStarredChatsClick = () => {
     setSidebarOpen(false);
-    setViewMode('starred');
     navigate('/starred');
   };
 
   const handleBackFromStarred = () => {
-    setViewMode('home');
     navigate('/');
   };
 
@@ -250,24 +256,18 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     // live subscribeToUserChats listener re-sorts locally at once; a failed
     // write must not delay navigation.
     touchChatOpened(user.uid, chat.id);
-    selectChat(chat);
+    setPendingChat(chat);
     switchChat(chat.id);
     setSidebarOpen(false);
-    setViewMode('chat');
     setTargetMessageId(null);
     navigate(`/chat/${chat.id}`);
   };
 
   const handleStartNewChat = async () => {
     try {
-      const chatId = await createNewChat('New Chat');
-      const newChat = userChats.find(chat => chat.id === chatId);
-      if (newChat) {
-        selectChat(newChat);
-        switchChat(chatId);
-        setViewMode('chat');
-        navigate(`/chat/${chatId}`);
-      }
+      const newChatId = await createNewChat('New Chat');
+      setPendingChat({ id: newChatId, title: 'New Chat' });
+      navigate(`/chat/${newChatId}`);
     } catch (error) {
       console.error('Error creating new chat:', error);
       setError('Failed to create new chat. Please try again.');
@@ -286,7 +286,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
       const targetId = result.messageId;
       
       // If we're already on this chat, just set the targetMessageId
-      if (currentChat?.id === result.chatId) {
+      if (chatId === result.chatId) {
         console.log('[ChatInterface] Already on chat, setting targetMessageId:', targetId);
         // Set the target and trigger a new scroll
         setTargetMessageId(targetId);
@@ -295,11 +295,9 @@ function ChatInterface({ user, onThemeToggle, theme }) {
       } else {
         // Otherwise, switch to the chat
         console.log('[ChatInterface] Switching to different chat:', result.chatId);
-        selectChat(chat);
-        await switchChat(result.chatId);
+        switchChat(result.chatId);
         setSidebarOpen(false);
-        setViewMode('chat');
-        
+
         // Set targetMessageId after a delay to ensure messages are loaded
         console.log('[ChatInterface] Scheduling targetMessageId set after 1000ms');
         setTimeout(() => {
@@ -313,36 +311,16 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     }
   };
 
-  // Load chat from URL parameter on mount or when chatId changes
+  // A link to a chat that isn't in the list (deleted, or not this user's) goes home once the
+  // list has loaded.
   useEffect(() => {
-    if (chatId && userChats.length > 0) {
-      const chat = userChats.find(c => c.id === chatId);
-      if (chat && (!currentChat || currentChat.id !== chatId)) {
-        selectChat(chat);
-        switchChat(chatId);
-        setViewMode('chat');
-        
-        // Check if we have a targetMessageId in navigation state
-        if (location.state?.targetMessageId) {
-          setTargetMessageId(location.state.targetMessageId);
-        }
-      } else if (!chat) {
-        // Chat not found, redirect to home
-        navigate('/');
-      }
-    } else if (location.pathname === '/starred') {
-      setViewMode('starred');
-    } else if (!chatId) {
-      setViewMode('home');
-    }
-  }, [chatId, userChats, location.pathname, location.state]);
+    if (chatId && !chatsLoading && !currentChat) navigate('/', { replace: true });
+  }, [chatId, chatsLoading, currentChat, navigate]);
 
-  // Update viewMode when currentChat changes
+  // A navigation can carry the message to scroll to.
   useEffect(() => {
-    if (currentChat) {
-      setViewMode('chat');
-    }
-  }, [currentChat]);
+    if (chatId && location.state?.targetMessageId) setTargetMessageId(location.state.targetMessageId);
+  }, [chatId, location.state]);
 
   // Render content based on view mode
   const renderContent = () => {
@@ -356,9 +334,12 @@ function ChatInterface({ user, onThemeToggle, theme }) {
         );
       case 'chat':
         if (!currentChat) {
-          // If viewMode is 'chat' but no chat selected, go to home
-          setViewMode('home');
-          return null;
+          // The URL names a chat the list hasn't delivered yet (a reload or a shared link).
+          return (
+            <div className="chat-loading" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <LoadingSpinner />
+            </div>
+          );
         }
         return (
           <div className="chat-container">
@@ -410,7 +391,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     <div className="chat-interface-wrapper">
       <ChatSidebar
         userChats={userChats}
-        currentChatId={currentChat?.id}
+        currentChatId={chatId}
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
         isOpen={sidebarOpen}

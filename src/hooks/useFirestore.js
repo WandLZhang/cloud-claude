@@ -4,9 +4,9 @@ import {
   subscribeToUserChats
 } from '../services/firebase';
 
+// The user's chat list. Which chat is open comes from the URL (ChatInterface), not from here.
 export function useFirestore(userId) {
   const [userChats, setUserChats] = useState([]);
-  const [currentChat, setCurrentChat] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -34,20 +34,9 @@ export function useFirestore(userId) {
     }
   }, [userId]);
 
-  const selectChat = useCallback((chat) => {
-    setCurrentChat(chat);
-  }, []);
-
-  const clearCurrentChat = useCallback(() => {
-    setCurrentChat(null);
-  }, []);
-
   return {
     userChats,
-    currentChat,
     createNewChat,
-    selectChat,
-    clearCurrentChat,
     loading
   };
 }
