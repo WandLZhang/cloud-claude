@@ -70,14 +70,21 @@ export const signInWithGoogle = async () => {
 
 export const logOut = () => signOut(auth);
 
+// New document ids, made on the device without a write. Sending uses them so the page can open the
+// chat and show the message at once, before Firestore confirms the writes.
+export const newChatId = (userId) => doc(collection(db, 'chats', userId, 'conversations')).id;
+export const newMessageId = (userId, chatId) =>
+  doc(collection(db, 'chats', userId, 'conversations', chatId, 'messages')).id;
+
 // Firestore functions for chats
-export const createChat = async (userId, chatData) => {
+export const createChat = async (userId, chatData, chatId = null) => {
   try {
-    const chatRef = await addDoc(collection(db, 'chats', userId, 'conversations'), {
-      ...chatData,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+    const data = { ...chatData, createdAt: serverTimestamp(), updatedAt: serverTimestamp() };
+    if (chatId) {
+      await setDoc(doc(db, 'chats', userId, 'conversations', chatId), data);
+      return chatId;
+    }
+    const chatRef = await addDoc(collection(db, 'chats', userId, 'conversations'), data);
     return chatRef.id;
   } catch (error) {
     console.error('Error creating chat:', error);
@@ -109,17 +116,20 @@ export const getUserChats = async (userId) => {
   }
 };
 
-export const addMessage = async (userId, chatId, message) => {
+export const addMessage = async (userId, chatId, message, messageId = null) => {
   try {
     // Add message to subcollection. userId is denormalized onto every message
     // so the search path can use a single collectionGroup('messages') query
     // scoped by where('userId','==',uid) instead of fanning out per chat.
-    const docRef = await addDoc(collection(db, 'chats', userId, 'conversations', chatId, 'messages'), {
-      ...message,
-      userId,
-      timestamp: serverTimestamp()
-    });
-    
+    const data = { ...message, userId, timestamp: serverTimestamp() };
+    let docRef;
+    if (messageId) {
+      docRef = { id: messageId };
+      await setDoc(doc(db, 'chats', userId, 'conversations', chatId, 'messages', messageId), data);
+    } else {
+      docRef = await addDoc(collection(db, 'chats', userId, 'conversations', chatId, 'messages'), data);
+    }
+
     // Update chat's last message and timestamp
     await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
       lastMessage: message.content,
@@ -236,29 +246,15 @@ export const touchChatOpened = async (userId, chatId) => {
   }
 };
 
-export const getStarredChats = async (userId) => {
-  try {
-    const chatsRef = collection(db, 'chats', userId, 'conversations');
-    const q = query(
-      chatsRef, 
-      where('isStarred', '==', true), 
-      orderBy('starredAt', 'desc')
-    );
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-  } catch (error) {
-    console.error('Error getting starred chats:', error);
-    return [];
-  }
-};
-
 // Real-time listeners
 export const subscribeToChat = (userId, chatId, callback) => {
   const messagesRef = collection(db, 'chats', userId, 'conversations', chatId, 'messages');
   const q = query(messagesRef, orderBy('timestamp', 'asc'));
   
+  // Until the server confirms a write, a serverTimestamp() field reads as null unless estimated, and
+  // a null timestamp sorted a just-sent message or a retry's reply to the top for a moment.
   return onSnapshot(q, (snapshot) => {
-    const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const messages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data({ serverTimestamps: 'estimate' }) }));
     callback(messages);
   });
 };
@@ -268,7 +264,7 @@ export const subscribeToUserChats = (userId, callback) => {
   const q = query(chatsRef, orderBy('updatedAt', 'desc'));
   
   return onSnapshot(q, (snapshot) => {
-    const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const chats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data({ serverTimestamps: 'estimate' }) }));
     callback(chats);
   });
 };

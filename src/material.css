@@ -1,6 +1,5 @@
-/* Fonts */
+/* Fonts: the system UI font for text (as CloudCLI and VS Code use), Google Symbols for icons */
 @import url(//fonts.googleapis.com/css2?family=Google+Symbols);
-@import url(//fonts.googleapis.com/css2?family=Google+Sans);
 
 :root {
   --size: 1rem;
@@ -15,85 +14,91 @@
   --unit-8: calc(var(--unit) * 8);
   --unit-9: calc(var(--unit) * 9);
   --unit-10: calc(var(--unit) * 10);
-  --font: "Google Sans", "Open Sans", Helvetica, Arial, sans-serif;
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --font-icon: "Google Symbols";
+  --radius: 10px;
 }
+/* Neutral warm grays with no bright accent, taken from CloudCLI's theme (itself modeled on the
+   VS Code Claude panel). The Material token names stay, so every component picks these up. */
 :root,
 body.light {
-  --primary: #0b57d0;
+  --primary: #2a2827;
   --on-primary: #ffffff;
-  --primary-container: #d3e3fd;
-  --on-primary-container: #0842a0;
-  --secondary: #00639b;
+  --primary-container: #e8e5e1;
+  --on-primary-container: #201e1d;
+  --secondary: #5c5853;
   --on-secondary: #ffffff;
-  --secondary-container: #c2e7ff;
-  --on-secondary-container: #004a77;
+  --secondary-container: #efedea;
+  --on-secondary-container: #2a2827;
   --tertiary: #146c2e;
   --on-tertiary: #ffffff;
   --tertiary-container: #c4eed0;
   --on-tertiary-container: #0f5223;
-  --error: #b3261e;
+  --error: #c5221f;
   --on-error: #ffffff;
-  --error-container: #f9dedc;
+  --error-container: #fbe4e2;
   --on-error-container: #8c1d18;
-  --background: #fff;
-  --on-background: #1f1f1f;
-  --surface: #fff;
-  --on-surface: #1f1f1f;
-  --surface-variant: #e1e3e1;
-  --on-surface-variant: #444746;
-  --outline: #747775;
-  --outline-variant: #c4c7c5;
-  --shadow: rgba(0, 0, 0, 0.15);
-  --scrim: rgba(0, 0, 0, 0.7);
-  --inverse-surface: #303030;
-  --inverse-on-surface: #f2f2f2;
-  --inverse-primary: #a8c7fa;
-  --surface-dim: #d3dbe5;
+  --link: #2f5fb3;
+  --background: #f9f9f8;
+  --on-background: #201e1d;
+  --surface: #f9f9f8;
+  --on-surface: #201e1d;
+  --surface-variant: #efedea;
+  --on-surface-variant: #75706c;
+  --outline: #a19c97;
+  --outline-variant: #e5e1dc;
+  --shadow: rgba(0, 0, 0, 0.08);
+  --scrim: rgba(0, 0, 0, 0.5);
+  --inverse-surface: #2a2827;
+  --inverse-on-surface: #f3f2f1;
+  --inverse-primary: #e0ddd8;
+  --surface-dim: #e0ddd8;
   --surface-bright: #ffffff;
   --surface-container-lowest: #ffffff;
-  --surface-container-low: #f8fafd;
-  --surface-container: #f0f4f9;
-  --surface-container-high: #e9eef6;
-  --surface-container-highest: #dde3ea;
+  --surface-container-low: #f3f2f1;
+  --surface-container: #efedea;
+  --surface-container-high: #e8e5e1;
+  --surface-container-highest: #e0ddd8;
 }
 body.dark {
-  --primary: #a8c7fa;
-  --on-primary: #062e6f;
-  --primary-container: #0842a0;
-  --on-primary-container: #d3e3fd;
-  --secondary: #7fcfff;
-  --on-secondary: #003355;
-  --secondary-container: #004a77;
-  --on-secondary-container: #c2e7ff;
+  --primary: #e6e4e0;
+  --on-primary: #141414;
+  --primary-container: #2b2b2b;
+  --on-primary-container: #eeede9;
+  --secondary: #b5b0aa;
+  --on-secondary: #141414;
+  --secondary-container: #2b2b2b;
+  --on-secondary-container: #eeede9;
   --tertiary: #6dd58c;
   --on-tertiary: #0a3818;
   --tertiary-container: #0f5223;
   --on-tertiary-container: #c4eed0;
   --error: #f2b8b5;
   --on-error: #601410;
-  --error-container: #8c1d18;
+  --error-container: #5c1a17;
   --on-error-container: #f9dedc;
-  --background: #131314;
-  --on-background: #e3e3e3;
-  --surface: #131314;
-  --on-surface: #e3e3e3;
-  --surface-variant: #444746;
-  --on-surface-variant: #c4c7c5;
-  --outline: #8e918f;
-  --outline-variant: #444746;
-  --shadow: rgba(0, 0, 0, 0.15);
-  --scrim: rgba(0, 0, 0, 0.7);
-  --inverse-surface: #e3e3e3;
-  --inverse-on-surface: #303030;
-  --inverse-primary: #0b57d0;
-  --surface-dim: #131314;
-  --surface-bright: #37393b;
-  --surface-container-lowest: #0e0e0e;
-  --surface-container-low: #1b1b1b;
-  --surface-container: #1e1f20;
-  --surface-container-high: #282a2c;
-  --surface-container-highest: #333537;
+  --link: #8ab4f8;
+  --background: #141414;
+  --on-background: #eeede9;
+  --surface: #141414;
+  --on-surface: #eeede9;
+  --surface-variant: #2b2b2b;
+  --on-surface-variant: #9e9e9e;
+  --outline: #737373;
+  --outline-variant: #2e2e2e;
+  --shadow: rgba(0, 0, 0, 0.4);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --inverse-surface: #eeede9;
+  --inverse-on-surface: #1f1f1f;
+  --inverse-primary: #2a2827;
+  --surface-dim: #141414;
+  --surface-bright: #333333;
+  --surface-container-lowest: #0f0f0f;
+  --surface-container-low: #1a1a1a;
+  --surface-container: #1f1f1f;
+  --surface-container-high: #2b2b2b;
+  --surface-container-highest: #333333;
 }
 * {
   -webkit-tap-highlight-color: transparent;

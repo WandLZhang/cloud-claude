@@ -7,17 +7,23 @@ import SignIn from './components/Auth/SignIn';
 import LoadingSpinner from './components/Common/LoadingSpinner';
 import './App.css';
 
+// The installed app's status bar takes this color.
+function setThemeColor(theme) {
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#141414' : '#f9f9f8');
+}
+
 function App() {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [theme, setTheme] = useState('light');
+  // index.html applied the saved theme before the first paint; this keeps the page in step with the toggle.
+  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
 
   useEffect(() => {
-    // Check for saved theme preference
-    const savedTheme = localStorage.getItem('theme') || 'light';
-    setTheme(savedTheme);
-    document.body.className = savedTheme;
+    document.body.className = theme;
+    setThemeColor(theme);
+  }, [theme]);
 
+  useEffect(() => {
     // Test mode: skip auth with a mock user for Playwright / local UI testing
     if (process.env.REACT_APP_TEST_MODE === 'true') {
       setUser({ uid: 'test-user', displayName: 'Test User', photoURL: null });
@@ -37,7 +43,6 @@ function App() {
   const toggleTheme = () => {
     const newTheme = theme === 'light' ? 'dark' : 'light';
     setTheme(newTheme);
-    document.body.className = newTheme;
     localStorage.setItem('theme', newTheme);
   };
 

@@ -1,3 +1,12 @@
+/* The first screen's placeholder: the app background, with a spinner only on a slow load */
+.first-load {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
 .chat-interface-wrapper {
   display: flex;
   height: 100%;

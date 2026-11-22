@@ -1,11 +1,41 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import MessageItem from './MessageItem';
 import LoadingSpinner from '../Common/LoadingSpinner';
 
-function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteMessage, userId, chatId, targetMessageId, scrollTrigger, onScrollComplete }) {
+function MessageList({ messages, latestReplyId, onRetry, isThinking, loading, onUpdateMessage, onDeleteMessage, userId, chatId, targetMessageId, scrollTrigger, onScrollComplete }) {
   const containerRef = useRef(null);
+  const innerRef = useRef(null);
+  const atBottomRef = useRef(true);
+  const shownRef = useRef(false);   // ChatInterface mounts one list per chat
   const prevMessagesLength = useRef(0);
   const messageRefs = useRef({});
+  const hasMessages = messages.length > 0;
+
+  // The first paint of a chat's messages is already scrolled to the bottom. Scrolling after the
+  // paint showed the top of the chat for a frame and then jumped.
+  useLayoutEffect(() => {
+    if (shownRef.current || loading || !hasMessages || targetMessageId || !containerRef.current) return;
+    shownRef.current = true;
+    containerRef.current.scrollTop = containerRef.current.scrollHeight;
+  }, [loading, hasMessages, targetMessageId]);
+
+  // While the reader is at the bottom, content that grows later (a photo that loads, a font, a
+  // highlighted code block) keeps the bottom in view instead of pushing it out of sight.
+  useEffect(() => {
+    const inner = innerRef.current;
+    if (!inner || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(() => {
+      const el = containerRef.current;
+      if (el && atBottomRef.current && !targetMessageId) el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(inner);
+    return () => observer.disconnect();
+  }, [loading, hasMessages, targetMessageId]);
+
+  const handleScroll = () => {
+    const el = containerRef.current;
+    if (el) atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
+  };
 
   // Scroll to bottom when messages load or change
   useEffect(() => {
@@ -165,7 +195,7 @@ function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteM
   }
 
   return (
-    <div className="messages-container scrollbar-custom" ref={containerRef}>
+    <div className="messages-container scrollbar-custom" ref={containerRef} onScroll={handleScroll}>
       {messages.length === 0 ? (
         <div className="flex flex-col items-center justify-center h-full text-center p-4">
           <span className="icon text-muted" style={{ fontSize: '48px', marginBottom: 'var(--unit-4)' }}>
@@ -177,7 +207,7 @@ function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteM
           </p>
         </div>
       ) : (
-        <>
+        <div ref={innerRef}>
           {messages.map((message) => (
             <div 
               key={message.id}
@@ -194,10 +224,12 @@ function MessageList({ messages, isThinking, loading, onUpdateMessage, onDeleteM
                 onDeleteMessage={onDeleteMessage}
                 userId={userId}
                 chatId={chatId}
+                isLatestReply={message.id === latestReplyId}
+                onRetry={onRetry}
               />
             </div>
           ))}
-        </>
+        </div>
       )}
     </div>
   );

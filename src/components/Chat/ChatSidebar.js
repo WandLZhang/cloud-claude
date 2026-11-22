@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { updateChatTitle, deleteChat, toggleChatStar } from '../../services/firebase';
 import { auth } from '../../services/firebase';
 import SearchResults from './SearchResults';
+import StarIcon from '../Common/StarIcon';
+import { relativeTime } from './format';
 import './ChatSidebar.css';
 
 function ChatSidebar({ 
@@ -9,8 +11,10 @@ function ChatSidebar({
   currentChatId, 
   onSelectChat, 
   onNewChat,
+  loading,
   isOpen,
   onToggle,
+  onOpen,
   onStarredChatsClick,
   onSelectSearchResult 
 }) {
@@ -20,25 +24,21 @@ function ChatSidebar({
   const [openMenuChatId, setOpenMenuChatId] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const searchRef = useRef(null);
+  const isMac = typeof navigator !== 'undefined' && navigator.platform.includes('Mac');
 
-  const formatDate = (timestamp) => {
-    if (!timestamp) return '';
-    
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    const now = new Date();
-    const diffInMs = now - date;
-    const diffInDays = Math.floor(diffInMs / (1000 * 60 * 60 * 24));
-    
-    if (diffInDays === 0) {
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    } else if (diffInDays === 1) {
-      return 'Yesterday';
-    } else if (diffInDays < 7) {
-      return date.toLocaleDateString([], { weekday: 'short' });
-    } else {
-      return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
-    }
-  };
+  // Ctrl+K (Cmd+K on a Mac) jumps to search from anywhere; on a phone it opens the sidebar first.
+  useEffect(() => {
+    const handleShortcut = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        if (onOpen) onOpen();
+        searchRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', handleShortcut);
+    return () => window.removeEventListener('keydown', handleShortcut);
+  }, [onOpen]);
 
   const stripHtml = (text) => {
     if (!text || !text.includes('<')) return text || '';
@@ -145,28 +145,21 @@ function ChatSidebar({
 
   return (
     <>
-      {/* Sidebar toggle button - always visible */}
-      <button 
-        className="sidebar-toggle"
-        onClick={onToggle}
-        aria-label="Toggle sidebar"
-      >
-        <span className="icon">menu</span>
-      </button>
-
-      {/* Sidebar */}
+      {/* Sidebar; on a phone the header's menu button opens it */}
       <div className={`chat-sidebar ${isOpen ? 'open' : ''}`}>
-        {/* Search Section */}
-        <div className="search-section">
+        {/* Search, Starred and New chat in one row */}
+        <div className="sidebar-top">
           <div className="search-input-wrapper">
+            <span className="icon search-icon">search</span>
             <input
+              ref={searchRef}
               type="text"
               placeholder="Search chats and messages..."
               value={searchQuery}
               onChange={handleSearchChange}
               className="search-input"
             />
-            {searchQuery && (
+            {searchQuery ? (
               <button 
                 className="clear-search-button"
                 onClick={handleClearSearch}
@@ -174,8 +167,32 @@ function ChatSidebar({
               >
                 <span className="icon">close</span>
               </button>
+            ) : (
+              <kbd className="search-kbd hide-mobile">{isMac ? '\u2318K' : 'Ctrl K'}</kbd>
             )}
           </div>
+          <button
+            className="icon-button small"
+            onClick={() => {
+              handleClearSearch();
+              onStarredChatsClick();
+            }}
+            aria-label="Starred chats"
+            title="Starred chats"
+          >
+            <span className="icon">star</span>
+          </button>
+          <button
+            className="icon-button small"
+            onClick={() => {
+              handleClearSearch();
+              onNewChat();
+            }}
+            aria-label="New chat"
+            title="New chat"
+          >
+            <span className="icon">add</span>
+          </button>
         </div>
 
         {/* Search Results */}
@@ -190,23 +207,8 @@ function ChatSidebar({
         {/* Regular Chat List */}
         {!showSearchResults && (
           <>
-            {/* Starred Chats Section */}
-            <div className="starred-chats-section">
-              <button 
-                className="starred-chats-button"
-                onClick={() => {
-                  handleClearSearch();
-                  onStarredChatsClick();
-                }}
-              >
-                <span className="icon">star</span>
-                <span>Starred Chats</span>
-                <span className="icon chevron">chevron_right</span>
-              </button>
-            </div>
-            
             <div className="chat-list">
-              {userChats.length === 0 ? (
+              {userChats.length === 0 ? (loading ? null : (
                 <div className="empty-state">
                   <p>No previous chats</p>
                   <button 
@@ -218,7 +220,7 @@ function ChatSidebar({
                     Start New Chat
                   </button>
                 </div>
-              ) : (
+              )) : (
                 <>
                   {userChats.map((chat) => (
                   <div
@@ -254,7 +256,7 @@ function ChatSidebar({
                         <>
                           <div className="chat-title-row">
                             <h3>{truncateText(chat.title || 'New Chat', 30)}</h3>
-                            {chat.isStarred && <span className="icon starred-icon">star</span>}
+                            {chat.isStarred && <StarIcon filled size={14} className="starred-icon" />}
                           </div>
                           <p className="chat-preview">
                             {truncateText(chat.lastMessage || 'No messages yet')}
@@ -283,7 +285,7 @@ function ChatSidebar({
                       ) : (
                         <>
                           <span className="chat-time">
-                            {formatDate(chat.updatedAt)}
+                            {relativeTime(chat.updatedAt)}
                           </span>
                           {/* Desktop hover actions */}
                           {hoveredChatId === chat.id && (
@@ -293,7 +295,7 @@ function ChatSidebar({
                                 onClick={(e) => handleStarClick(e, chat)}
                                 title={chat.isStarred ? "Unstar chat" : "Star chat"}
                               >
-                                <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
+                                <StarIcon filled={!!chat.isStarred} size={18} />
                               </button>
                               <button
                                 className="icon-button small"
@@ -329,7 +331,7 @@ function ChatSidebar({
                                   className="menu-item"
                                   onClick={(e) => handleStarClick(e, chat)}
                                 >
-                                  <span className="icon">{chat.isStarred ? 'star' : 'star_border'}</span>
+                                  <StarIcon filled={!!chat.isStarred} size={18} />
                                   <span>{chat.isStarred ? 'Unstar' : 'Star'}</span>
                                 </button>
                                 <button
@@ -363,18 +365,6 @@ function ChatSidebar({
                 </>
               )}
             </div>
-            {userChats.length > 0 && (
-              <div className="sidebar-bottom">
-                <button 
-                  onClick={() => {
-                    handleClearSearch();
-                    onNewChat();
-                  }}
-                >
-                  Start New Chat
-                </button>
-              </div>
-            )}
           </>
         )}
       </div>

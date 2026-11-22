@@ -2,67 +2,33 @@ import React, { useState } from 'react';
 import UserMenu from '../Auth/UserMenu';
 import ChatInput from '../Chat/ChatInput';
 import SavedPrompts from './SavedPrompts';
-import { useChat } from '../../hooks/useChat';
 import './HomePage.css';
 
-function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSelectChat }) {
+function HomePage({ user, onThemeToggle, theme, onSendFromHome, userChats, onSelectChat }) {
   const [showUserMenu, setShowUserMenu] = useState(false);
-  const [isThinking, setIsThinking] = useState(false);
   const [error, setError] = useState('');
   const [selectedPromptContent, setSelectedPromptContent] = useState('');
   const [selectedPrompt, setSelectedPrompt] = useState(null);
-  const { sendMessage } = useChat(user.uid, null);
 
-  const handleSendMessage = async (content, image, extraOptions = {}) => {
-    setError('');
-    setIsThinking(true);
-
-    try {
-      // Build chat config from template flags only — no hardcoded overrides
-      const chatConfig = {};
-      if (selectedPrompt?.disableThinking) {
-        chatConfig.disableThinking = true;
-      }
-      if (selectedPrompt?.useFastModel) {
-        chatConfig.useFastModel = true;
-      }
-      if (selectedPrompt?.enableWebSearch) {
-        chatConfig.enableWebSearch = true;
-      }
-      if (selectedPrompt?.systemPrompt) {
-        chatConfig.systemPrompt = selectedPrompt.systemPrompt;
-      }
-      // Merge extra options from ChatInput (web search, document, etc.)
-      Object.assign(chatConfig, extraOptions);
-
-      // sendMessage will create a new chat and return the chat ID
-      const result = await sendMessage(content, image, chatConfig);
-
-      if (result && result.chatId && result.isNewChat) {
-        // Immediately navigate to the new chat with a temporary chat object
-        const tempChat = {
-          id: result.chatId,
-          title: content.trim().length > 40
-            ? content.trim().substring(0, 40) + '...'
-            : content.trim(),
-          createdAt: new Date(),
-          lastMessage: content,
-          lastMessageAt: new Date(),
-          ...(chatConfig.enableWebSearch && { enableWebSearch: true }),
-          ...(chatConfig.disableThinking && { disableThinking: true }),
-          ...(chatConfig.useFastModel && { useFastModel: true }),
-          ...(chatConfig.systemPrompt && { systemPrompt: chatConfig.systemPrompt }),
-        };
-
-        // Navigate immediately
-        onSelectChat(tempChat);
-      }
-    } catch (err) {
-      console.error('Error starting chat:', err);
-      setError('Failed to start chat. Please try again.');
-    } finally {
-      setIsThinking(false);
+  // ChatInterface opens the new chat at once and shows the message there; a failure shows in that chat.
+  const handleSendMessage = (content, image, extraOptions = {}) => {
+    // Build chat config from template flags only — no hardcoded overrides
+    const chatConfig = {};
+    if (selectedPrompt?.disableThinking) {
+      chatConfig.disableThinking = true;
     }
+    if (selectedPrompt?.useFastModel) {
+      chatConfig.useFastModel = true;
+    }
+    if (selectedPrompt?.enableWebSearch) {
+      chatConfig.enableWebSearch = true;
+    }
+    if (selectedPrompt?.systemPrompt) {
+      chatConfig.systemPrompt = selectedPrompt.systemPrompt;
+    }
+    // Merge extra options from ChatInput (web search, document, etc.)
+    Object.assign(chatConfig, extraOptions);
+    return onSendFromHome(content, image, chatConfig);
   };
 
   const handleBatchRelease = async (items) => {
@@ -169,7 +135,7 @@ function HomePage({ user, onThemeToggle, theme, onStartNewChat, userChats, onSel
         <ChatInput
           onSendMessage={handleSendMessage}
           onBatchRelease={handleBatchRelease}
-          disabled={isThinking}
+          disabled={false}
           placeholder="Message Claude..."
           value={selectedPromptContent}
           defaultWebSearch={!!selectedPrompt?.enableWebSearch}

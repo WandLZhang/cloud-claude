@@ -2,62 +2,67 @@ import React, { useEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import CodeBlock from './CodeBlock';
 import ExportMenu from './ExportMenu';
 import UserMessageMenu from './UserMessageMenu';
 import { replyState } from './replyState';
+import { codeFromNode, formatElapsed, modelLabel, thinkingLabel } from './format';
 import './ExportMenu.css';
 import './UserMessageMenu.css';
 
 // Statuses that come from web search get the search icon; the rest get a spinner.
 const SEARCH_STATUS_PREFIXES = ['Searching', 'Reading'];
 
-function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId }) {
+const markdownComponents = {
+  // A fenced block arrives as <pre><code class="language-x">; CodeBlock draws it as one dark block.
+  pre({ node }) {
+    const { language, text } = codeFromNode(node);
+    return <CodeBlock language={language} text={text} />;
+  },
+  // Wide tables scroll sideways on a phone instead of squeezing their columns.
+  table({ node, children, ...props }) {
+    return (
+      <div className="table-scroll">
+        <table {...props}>{children}</table>
+      </div>
+    );
+  },
+};
+
+function startedAt(message) {
+  const ts = message.timestamp;
+  if (ts && typeof ts.toDate === 'function') return ts.toDate().getTime();
+  if (ts instanceof Date) return ts.getTime();
+  return null;
+}
+
+function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId, isLatestReply, onRetry }) {
   const isUser = message.role === 'user';
   const isStreaming = message.isStreaming;
   const messageRef = useRef(null);
   const [isEditing, setIsEditing] = useState(false);
   const [editedContent, setEditedContent] = useState(message.content || '');
   const [now, setNow] = useState(() => Date.now());
+  const [showThinking, setShowThinking] = useState(false);
+  const [copied, setCopied] = useState(false);
 
-  // A reply whose turn died never gets another Firestore update, so re-check its age on a timer.
+  // While a reply streams, tick each second: the status line shows how long it has run, and a reply
+  // whose turn died never gets another Firestore update, so its age decides when it reads as stopped.
   useEffect(() => {
     if (!isStreaming) return undefined;
-    const id = setInterval(() => setNow(Date.now()), 30000);
+    const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, [isStreaming]);
 
   const reply = isUser ? null : replyState(message, now);
   const status = reply?.kind === 'streaming' ? reply.status : null;
-  const showThinking = reply?.kind === 'streaming' && !message.content && (!status || status === 'Thinking');
-  const showStatus = reply?.kind === 'streaming' && status && !showThinking;
+  const showTyping = reply?.kind === 'streaming' && !message.content && (!status || status === 'Thinking');
+  const showStatus = reply?.kind === 'streaming' && status && !showTyping;
   const isSearchStatus = showStatus && SEARCH_STATUS_PREFIXES.some((p) => status.startsWith(p));
-
-  const components = {
-    code({ node, inline, className, children, ...props }) {
-      const match = /language-(\w+)/.exec(className || '');
-      return !inline && match ? (
-        <SyntaxHighlighter
-          style={vscDarkPlus}
-          language={match[1]}
-          PreTag="div"
-          customStyle={{
-            margin: 'var(--unit-3) 0',
-            borderRadius: 'var(--unit-2)',
-            fontSize: '0.9em'
-          }}
-          {...props}
-        >
-          {String(children).replace(/\n$/, '')}
-        </SyntaxHighlighter>
-      ) : (
-        <code className={className} {...props}>
-          {children}
-        </code>
-      );
-    },
-  };
+  const started = reply?.kind === 'streaming' ? startedAt(message) : null;
+  const elapsed = started !== null ? ` · ${formatElapsed(now - started)}` : '';
+  const finished = reply && reply.kind !== 'streaming';
+  const hasThinking = !isUser && !!message.thinking;
 
   const handleEdit = () => {
     setIsEditing(true);
@@ -80,20 +85,42 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
     await onDeleteMessage(userId, chatId, message.id);
   };
 
+  const handleCopyReply = async () => {
+    try {
+      await navigator.clipboard.writeText(message.content || '');
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error('[MessageItem] copy failed:', err);
+    }
+  };
+
+  // Older replies keep their actions in the corner menu, so they take no extra height.
+  const menuItems = [];
+  if (hasThinking && !isLatestReply) {
+    menuItems.push({
+      icon: 'psychology',
+      label: showThinking ? 'Hide thinking' : thinkingLabel(message.thinkingSeconds),
+      onClick: () => setShowThinking(!showThinking),
+    });
+  }
+
   return (
     <div className={`message message-${isUser ? 'user' : 'assistant'}`}>
       <div className="message-bubble" ref={!isUser ? messageRef : null} style={{ position: 'relative' }}>
         {!isUser && !isStreaming && message.content && (
-          <div style={{ position: 'absolute', top: 'var(--unit-2)', right: 'var(--unit-2)' }}>
-            <ExportMenu 
-              message={message} 
-              messageRef={messageRef} 
+          <div className="reply-menu">
+            <ExportMenu
+              message={message}
+              messageRef={messageRef}
               onDelete={onDeleteMessage ? () => handleDelete() : null}
+              extraItems={menuItems}
+              modelName={modelLabel(message.model)}
             />
           </div>
         )}
-        {isUser && (
-          <UserMessageMenu 
+        {isUser && !message.pending && (
+          <UserMessageMenu
             onEdit={handleEdit}
             onDelete={handleDelete}
           />
@@ -101,7 +128,7 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
         {message.image && (
           <img
             src={message.image.url}
-            alt="Uploaded image"
+            alt="Uploaded"
             style={{
               maxWidth: '200px',
               maxHeight: '200px',
@@ -121,7 +148,7 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
             backgroundColor: 'var(--surface-container-low)',
             marginBottom: 'var(--unit-2)'
           }}>
-            <span className="icon" style={{ fontSize: '20px', color: 'var(--primary)' }}>description</span>
+            <span className="icon" style={{ fontSize: '20px', color: 'var(--on-surface-variant)' }}>description</span>
             <span style={{ fontSize: '14px' }}>{message.document.name || 'Document'}</span>
           </div>
         )}
@@ -148,16 +175,21 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
           )
         ) : (
           <div className="message-content">
+            {hasThinking && showThinking && (
+              <div className="thinking-text">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.thinking}</ReactMarkdown>
+              </div>
+            )}
             <ReactMarkdown
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeRaw]}
-              components={components}
+              components={markdownComponents}
             >
               {message.content || ''}
             </ReactMarkdown>
-            {showThinking && (
+            {showTyping && (
               <div className="typing-indicator-wrapper">
-                <div className="typing-text">Claude is thinking</div>
+                <div className="typing-text">Claude is thinking{elapsed}</div>
                 <div className="typing-indicator">
                   <span></span>
                   <span></span>
@@ -172,7 +204,7 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
                 ) : (
                   <span className="icon" style={{ fontSize: '16px', animation: 'spin 1s linear infinite' }}>refresh</span>
                 )}
-                <span>{status}</span>
+                <span>{status}{elapsed}</span>
               </div>
             )}
             {(reply?.kind === 'failed' || reply?.kind === 'stopped') && (
@@ -212,7 +244,7 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
                       rel="noopener noreferrer"
                       style={{
                         fontSize: '12px',
-                        color: 'var(--primary)',
+                        color: 'var(--link)',
                         textDecoration: 'none',
                         display: 'flex',
                         alignItems: 'center',
@@ -224,6 +256,29 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
                     </a>
                   ))}
                 </div>
+              </div>
+            )}
+            {isLatestReply && finished && (
+              <div className="reply-footer">
+                {hasThinking && (
+                  <button type="button" className="reply-action" onClick={() => setShowThinking(!showThinking)}>
+                    <span className="icon">psychology</span>
+                    {showThinking ? 'Hide thinking' : thinkingLabel(message.thinkingSeconds)}
+                  </button>
+                )}
+                {message.content && (
+                  <button type="button" className="reply-action" onClick={handleCopyReply} aria-label="Copy reply">
+                    <span className="icon">{copied ? 'check' : 'content_copy'}</span>
+                    {copied ? 'Copied' : 'Copy'}
+                  </button>
+                )}
+                {onRetry && (
+                  <button type="button" className="reply-action" onClick={() => onRetry(message)} aria-label="Retry">
+                    <span className="icon">refresh</span>
+                    Retry
+                  </button>
+                )}
+                {message.model && <span className="reply-model">{modelLabel(message.model)}</span>}
               </div>
             )}
           </div>

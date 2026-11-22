@@ -1,34 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { getStarredChats, toggleChatStar } from '../../services/firebase';
+import React, { useMemo } from 'react';
+import { toggleChatStar } from '../../services/firebase';
 import { auth } from '../../services/firebase';
 import './StarredChats.css';
 
-function StarredChats({ onSelectChat, onBack }) {
-  const [starredChats, setStarredChats] = useState([]);
-  const [loading, setLoading] = useState(true);
+const millis = (t) => (t?.toDate ? t.toDate().getTime() : t ? new Date(t).getTime() : 0);
 
-  useEffect(() => {
-    loadStarredChats();
-  }, []);
-
-  const loadStarredChats = async () => {
-    try {
-      setLoading(true);
-      const chats = await getStarredChats(auth.currentUser.uid);
-      setStarredChats(chats);
-    } catch (error) {
-      console.error('Error loading starred chats:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+// The starred chats come from the live chat list ChatInterface keeps, so this view opens at once,
+// with no fetch, and follows star changes as they happen.
+function StarredChats({ chats, onSelectChat, onBack }) {
+  const starredChats = useMemo(
+    () => chats.filter((c) => c.isStarred).sort((a, b) => millis(b.starredAt) - millis(a.starredAt)),
+    [chats]
+  );
 
   const handleUnstar = async (chatId, e) => {
     e.stopPropagation();
     try {
       await toggleChatStar(auth.currentUser.uid, chatId, false);
-      // Remove from local state immediately
-      setStarredChats(starredChats.filter(chat => chat.id !== chatId));
     } catch (error) {
       console.error('Error unstarring chat:', error);
     }
@@ -67,12 +55,7 @@ function StarredChats({ onSelectChat, onBack }) {
         <h1>Starred Chats</h1>
       </div>
 
-      {loading ? (
-        <div className="loading-state">
-          <div className="spinner"></div>
-          <p>Loading starred chats...</p>
-        </div>
-      ) : starredChats.length === 0 ? (
+      {starredChats.length === 0 ? (
         <div className="empty-starred">
           <span className="icon large">star_border</span>
           <h2>No starred chats yet</h2>

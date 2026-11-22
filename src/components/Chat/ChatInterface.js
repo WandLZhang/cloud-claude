@@ -5,11 +5,15 @@ import ChatInput from './ChatInput';
 import ChatSidebar from './ChatSidebar';
 import HomePage from '../Home/HomePage';
 import StarredChats from './StarredChats';
+import Header from '../Layout/Header';
 import LoadingSpinner from '../Common/LoadingSpinner';
 import { useChat } from '../../hooks/useChat';
 import { useFirestore } from '../../hooks/useFirestore';
-import { updateMessage, deleteMessage, touchChatOpened } from '../../services/firebase';
+import { updateMessage, deleteMessage, touchChatOpened, toggleChatStar, newChatId, newMessageId } from '../../services/firebase';
+import { mergePending, waitingPending, chatTitle } from './format';
 import './ChatInterface.css';
+
+const FIRST_LOAD_WAIT_MS = 1500;
 
 function ChatInterface({ user, onThemeToggle, theme }) {
   const { chatId } = useParams();
@@ -19,11 +23,12 @@ function ChatInterface({ user, onThemeToggle, theme }) {
   const [error, setError] = useState('');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [pendingChat, setPendingChat] = useState(null); // a chat opened before the chat list has it
+  const [pending, setPending] = useState([]); // sent messages Firestore hasn't confirmed yet
   const [targetMessageId, setTargetMessageId] = useState(null);
   const [scrollTrigger, setScrollTrigger] = useState(0);
   const messagesEndRef = useRef(null);
 
-  const { userChats, loading: chatsLoading, createNewChat } = useFirestore(user.uid);
+  const { userChats, loading: chatsLoading } = useFirestore(user.uid);
 
   // The URL alone decides the view and the open chat. React Router applies each navigation
   // inside startTransition, after ordinary state updates. A view kept in its own state could be
@@ -46,9 +51,64 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     return config;
   }, [currentChat?.disableThinking, currentChat?.useFastModel, currentChat?.enableWebSearch, currentChat?.systemPrompt]);
   
-  const { messages, sendMessage, loading, switchChat } = useChat(user.uid, chatId, currentChatConfig);
+  const { messages, sendMessage, retryReply, loading } = useChat(user.uid, chatId, currentChatConfig);
   const previousMessagesLength = useRef(0);
   const isStreamingRef = useRef(false);
+
+  // A sent message shows at once, with a placeholder for its reply, until Firestore delivers the
+  // saved copies; a photo no longer holds the message back until its upload finishes.
+  const shownMessages = useMemo(
+    () => mergePending(messages, pending.filter((p) => p.chatId === chatId)),
+    [messages, pending, chatId]
+  );
+  const latestReplyId = shownMessages.length && shownMessages[shownMessages.length - 1].role === 'assistant'
+    ? shownMessages[shownMessages.length - 1].id
+    : null;
+
+  // The first screen waits for the chat list and, on a chat link, that chat's messages, so it
+  // appears whole instead of filling in piece by piece. A slow network gets it after
+  // FIRST_LOAD_WAIT_MS anyway.
+  const firstContentReady = !chatsLoading && !(viewMode === 'chat' && currentChat && loading);
+  const [firstLoadDone, setFirstLoadDone] = useState(false);
+  useEffect(() => {
+    if (firstLoadDone) return undefined;
+    if (firstContentReady) {
+      setFirstLoadDone(true);
+      return undefined;
+    }
+    const id = setTimeout(() => setFirstLoadDone(true), FIRST_LOAD_WAIT_MS);
+    return () => clearTimeout(id);
+  }, [firstContentReady, firstLoadDone]);
+
+  useEffect(() => {
+    setPending((prev) => {
+      const mine = prev.filter((p) => p.chatId === chatId);
+      if (mine.length === 0) return prev;
+      const waiting = new Set(waitingPending(messages, mine));
+      const next = prev.filter((p) => p.chatId !== chatId || waiting.has(p));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [messages, chatId]);
+
+  const addPending = (forChatId, userMessageId, content, image, document) => {
+    const sentAt = new Date();
+    setPending((prev) => [
+      ...prev,
+      {
+        id: userMessageId, chatId: forChatId, role: 'user', content, timestamp: sentAt, pending: true,
+        ...(image && { image: { url: image.url, type: image.type } }),
+        ...(document && { document: { name: document.name } }),
+      },
+      {
+        id: `pending-reply-${userMessageId}`, chatId: forChatId, role: 'assistant', content: '',
+        isStreaming: true, replyTo: userMessageId, timestamp: sentAt, pending: true,
+      },
+    ]);
+  };
+
+  const dropPending = (userMessageId) => {
+    setPending((prev) => prev.filter((p) => p.id !== userMessageId && p.replyTo !== userMessageId));
+  };
 
   const scrollToBottom = (behavior = 'smooth') => {
     if (messagesEndRef.current) {
@@ -134,15 +194,79 @@ function ChatInterface({ user, onThemeToggle, theme }) {
 
   const handleSendMessage = async (content, image, extraOptions = {}) => {
     setError('');
+    const userMessageId = newMessageId(user.uid, chatId);
+    addPending(chatId, userMessageId, content, image, extraOptions.document);
     setIsThinking(true);
 
     try {
-      await sendMessage(content, image, extraOptions);
+      await sendMessage(content, image, extraOptions, { userMessageId });
     } catch (err) {
       console.error('Error sending message:', err);
+      dropPending(userMessageId);
       setError('Failed to send message. Please try again.');
     } finally {
       setIsThinking(false);
+    }
+  };
+
+  // A send from the home page names the new chat up front, opens it at once, and shows the message
+  // while the chat, the photo and the message are written.
+  const handleSendFromHome = async (content, image, chatConfig = {}) => {
+    setError('');
+    const id = newChatId(user.uid);
+    const userMessageId = newMessageId(user.uid, id);
+    setPendingChat({
+      id,
+      title: chatTitle(content, !!image),
+      ...(chatConfig.enableWebSearch && { enableWebSearch: true }),
+      ...(chatConfig.disableThinking && { disableThinking: true }),
+      ...(chatConfig.useFastModel && { useFastModel: true }),
+      ...(chatConfig.systemPrompt && { systemPrompt: chatConfig.systemPrompt }),
+    });
+    addPending(id, userMessageId, content, image, chatConfig.document);
+    setSidebarOpen(false);
+    setTargetMessageId(null);
+    navigate(`/chat/${id}`);
+    setIsThinking(true);
+
+    try {
+      await sendMessage(content, image, chatConfig, { newChat: true, chatId: id, userMessageId });
+    } catch (err) {
+      console.error('Error starting chat:', err);
+      dropPending(userMessageId);
+      setError('Failed to send message. Please try again.');
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  // Retry asks again for a reply to the question above `reply`, with the history before that
+  // question. The earlier reply stays; the new one appears under it.
+  const handleRetry = async (reply) => {
+    const replyIndex = messages.findIndex((m) => m.id === reply.id);
+    let questionIndex = messages.findIndex((m) => m.id === reply.replyTo);
+    for (let i = replyIndex - 1; questionIndex < 0 && i >= 0; i -= 1) {
+      if (messages[i].role === 'user') questionIndex = i;   // replies saved before replyTo existed
+    }
+    if (questionIndex < 0) return;
+    setError('');
+    setIsThinking(true);
+    try {
+      await retryReply(messages[questionIndex], messages.slice(0, questionIndex));
+    } catch (err) {
+      console.error('Error retrying reply:', err);
+      setError('Retry failed. Please try again.');
+    } finally {
+      setIsThinking(false);
+    }
+  };
+
+  const handleToggleStar = async () => {
+    if (!currentChat) return;
+    try {
+      await toggleChatStar(user.uid, currentChat.id, !currentChat.isStarred);
+    } catch (err) {
+      console.error('Failed to star/unstar chat:', err);
     }
   };
 
@@ -257,21 +381,9 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     // write must not delay navigation.
     touchChatOpened(user.uid, chat.id);
     setPendingChat(chat);
-    switchChat(chat.id);
     setSidebarOpen(false);
     setTargetMessageId(null);
     navigate(`/chat/${chat.id}`);
-  };
-
-  const handleStartNewChat = async () => {
-    try {
-      const newChatId = await createNewChat('New Chat');
-      setPendingChat({ id: newChatId, title: 'New Chat' });
-      navigate(`/chat/${newChatId}`);
-    } catch (error) {
-      console.error('Error creating new chat:', error);
-      setError('Failed to create new chat. Please try again.');
-    }
   };
 
   const handleSelectSearchResult = async (result) => {
@@ -295,7 +407,6 @@ function ChatInterface({ user, onThemeToggle, theme }) {
       } else {
         // Otherwise, switch to the chat
         console.log('[ChatInterface] Switching to different chat:', result.chatId);
-        switchChat(result.chatId);
         setSidebarOpen(false);
 
         // Set targetMessageId after a delay to ensure messages are loaded
@@ -328,6 +439,7 @@ function ChatInterface({ user, onThemeToggle, theme }) {
       case 'starred':
         return (
           <StarredChats
+            chats={userChats}
             onSelectChat={handleSelectChat}
             onBack={handleBackFromStarred}
           />
@@ -343,10 +455,13 @@ function ChatInterface({ user, onThemeToggle, theme }) {
         }
         return (
           <div className="chat-container">
-            <MessageList 
-              messages={messages} 
+            <MessageList
+              key={currentChat.id}
+              messages={shownMessages}
+              latestReplyId={latestReplyId}
+              onRetry={isThinking ? null : handleRetry}
               isThinking={isThinking}
-              loading={loading}
+              loading={loading && shownMessages.length === 0}
               onUpdateMessage={updateMessage}
               onDeleteMessage={deleteMessage}
               userId={user.uid}
@@ -375,11 +490,11 @@ function ChatInterface({ user, onThemeToggle, theme }) {
       case 'home':
       default:
         return (
-          <HomePage 
-            user={user} 
-            onThemeToggle={onThemeToggle} 
+          <HomePage
+            user={user}
+            onThemeToggle={onThemeToggle}
             theme={theme}
-            onStartNewChat={handleStartNewChat}
+            onSendFromHome={handleSendFromHome}
             userChats={userChats}
             onSelectChat={handleSelectChat}
           />
@@ -387,20 +502,42 @@ function ChatInterface({ user, onThemeToggle, theme }) {
     }
   };
 
+  if (!firstLoadDone) {
+    return (
+      <div className="first-load">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
   return (
     <div className="chat-interface-wrapper">
       <ChatSidebar
         userChats={userChats}
+        loading={chatsLoading}
         currentChatId={chatId}
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
         isOpen={sidebarOpen}
         onToggle={() => setSidebarOpen(!sidebarOpen)}
+        onOpen={() => setSidebarOpen(true)}
         onStarredChatsClick={handleStarredChatsClick}
         onSelectSearchResult={handleSelectSearchResult}
       />
-      
-      {renderContent()}
+
+      <div className="main-pane">
+        <Header
+          title={viewMode === 'chat' ? (currentChat ? currentChat.title || 'New Chat' : '') : viewMode === 'starred' ? 'Starred' : 'Cloud Claude'}
+          onOpenSidebar={() => setSidebarOpen(true)}
+          chat={viewMode === 'chat' ? currentChat : null}
+          onToggleStar={handleToggleStar}
+          onNewChat={viewMode === 'home' ? null : handleNewChat}
+          user={viewMode === 'home' ? user : null}
+          theme={theme}
+          onThemeToggle={onThemeToggle}
+        />
+        {renderContent()}
+      </div>
     </div>
   );
 }

@@ -558,8 +558,8 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
           </div>
         )}
         
-        <div 
-          className="flex gap-2 items-end"
+        <div
+          className="flex gap-1 items-end"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -572,11 +572,12 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
             transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
           }}
         >
+          <div className="composer-tools">
           <button
             type="button"
             onClick={() => fileInputRef.current?.click()}
             disabled={disabled}
-            className="icon-button"
+            className="icon-button composer-tool"
             aria-label="Attach file"
           >
             <span className="icon">attach_file</span>
@@ -586,7 +587,7 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
             type="button"
             onClick={handleCameraCapture}
             disabled={disabled}
-            className="icon-button"
+            className="icon-button composer-tool"
             aria-label="Take photo"
           >
             <span className="icon">photo_camera</span>
@@ -596,15 +597,10 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
             type="button"
             onClick={() => setWebSearchEnabled(!webSearchEnabled)}
             disabled={disabled}
-            className="icon-button"
+            className={`icon-button composer-tool${webSearchEnabled ? ' active' : ''}`}
             aria-label="Toggle web search"
+            aria-pressed={webSearchEnabled}
             title={webSearchEnabled ? 'Web search ON' : 'Web search OFF'}
-            style={{
-              backgroundColor: webSearchEnabled ? 'var(--primary-container)' : 'transparent',
-              color: webSearchEnabled ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
-              borderRadius: 'var(--unit-3)',
-              transition: 'all 0.2s ease'
-            }}
           >
             <span className="icon">travel_explore</span>
           </button>
@@ -613,16 +609,11 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
             type="button"
             onClick={handleBatchToggle}
             disabled={disabled}
-            className="icon-button"
+            className={`icon-button composer-tool${batchMode ? ' active' : ''}`}
             aria-label="Toggle batch mode"
+            aria-pressed={batchMode}
             title={batchMode ? (batchQueue.length > 0 ? `Release ${batchQueue.length} queued` : 'Batch mode ON — click to exit') : 'Batch mode OFF'}
-            style={{
-              backgroundColor: batchMode ? 'var(--primary-container)' : 'transparent',
-              color: batchMode ? 'var(--on-primary-container)' : 'var(--on-surface-variant)',
-              borderRadius: 'var(--unit-3)',
-              transition: 'all 0.2s ease',
-              position: 'relative'
-            }}
+            style={{ overflow: 'visible' }}
           >
             <span className="icon">playlist_add</span>
             {batchQueue.length > 0 && (
@@ -646,6 +637,7 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
               }}>{batchQueue.length}</span>
             )}
           </button>
+          </div>
 
           <input
             ref={fileInputRef}
@@ -679,20 +671,11 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
           <button
             type="submit"
             disabled={disabled || (!message.trim() && !selectedImage && !selectedDocument)}
-            className="icon-button"
+            className="send-button"
             aria-label={batchMode ? "Add to batch" : "Send message"}
             title={batchMode ? "Add to batch queue" : "Send message"}
-            style={{
-              width: '40px',
-              height: '40px',
-              minWidth: '40px',
-              minHeight: '40px',
-              flexShrink: 0,
-              backgroundColor: batchMode ? 'var(--primary-container)' : 'var(--surface-container)',
-              color: batchMode ? 'var(--on-primary-container)' : 'var(--on-surface-variant)'
-            }}
           >
-            <span className="icon" style={{ fontSize: '24px' }}>{batchMode ? 'add' : 'send'}</span>
+            <span className="icon">{batchMode ? 'add' : 'arrow_upward'}</span>
           </button>
         </div>
       </form>

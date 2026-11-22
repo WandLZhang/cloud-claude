@@ -156,6 +156,24 @@ def test_saves_reply(token):
     })
 
 
+def test_saves_thinking_time(token):
+    chat, reply = new_placeholder()
+    prompt = "Think it through step by step: how many primes are there below 100? Answer with just the number."
+    done = {}
+    for _, ev in events(post(payload(prompt, chat, reply, disable_thinking=False), token), time.time()):
+        if ev["type"] == "done":
+            done = ev
+    doc = wait_finished(reply, 120)
+    print(f"  thinking {len(doc.get('thinking') or '')} chars, thinkingSeconds {doc.get('thinkingSeconds')!r}, "
+          f"done event {done.get('thinking_seconds')!r}")
+    return report("saves how long the reply thought", {
+        "reply has thinking text": bool(doc.get("thinking")),
+        "thinkingSeconds saved and positive": isinstance(doc.get("thinkingSeconds"), (int, float))
+        and doc["thinkingSeconds"] > 0,
+        "done event carries the same value": done.get("thinking_seconds") == doc.get("thinkingSeconds"),
+    })
+
+
 def test_survives_disconnect(token):
     chat, reply = new_placeholder()
     resp = post(payload("Count from 1 to 200, one number per line, nothing else.", chat, reply), token)
@@ -235,7 +253,7 @@ if __name__ == "__main__":
     token = id_token()
     results = {}
     try:
-        for test in (test_status_arrives_first, test_saves_reply, test_survives_disconnect,
+        for test in (test_status_arrives_first, test_saves_reply, test_saves_thinking_time, test_survives_disconnect,
                      test_saves_error, test_rejects_bad_token, test_rejects_unknown_message,
                      test_no_persist_unchanged):
             print(f"--- {test.__name__}")

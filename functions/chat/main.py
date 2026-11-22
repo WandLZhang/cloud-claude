@@ -250,11 +250,13 @@ class TurnStore:
                              'streamUpdatedAt': fb_firestore.SERVER_TIMESTAMP})
         self.last_write, self.last_status, self.last_content = now, status, content
 
-    def finish(self, content, thinking=None, citations=None, model=None):
+    def finish(self, content, thinking=None, citations=None, model=None, thinking_seconds=None):
         update = {'content': content, 'isStreaming': False, 'status': None, 'retryStatus': None,
                   'streamUpdatedAt': fb_firestore.SERVER_TIMESTAMP}
         if thinking:
             update['thinking'] = thinking
+        if thinking_seconds:
+            update['thinkingSeconds'] = thinking_seconds
         if citations:
             update['citations'] = citations
         if model:
@@ -275,7 +277,7 @@ class NoStore:
     def progress(self, content, status):
         pass
 
-    def finish(self, content, thinking=None, citations=None, model=None):
+    def finish(self, content, thinking=None, citations=None, model=None, thinking_seconds=None):
         pass
 
     def fail(self, error, content):
@@ -332,6 +334,8 @@ def run_turn(message_options, disable_thinking, enable_web_search, all_messages,
     full_response = ''
     thinking_content = ''
     is_thinking = False
+    thinking_seconds = 0.0   # summed over thinking blocks; the UI shows "Thought for N s"
+    thinking_started = None
     citations = []
     web_search_queries = []
     status = 'Thinking'
@@ -355,6 +359,7 @@ def run_turn(message_options, disable_thinking, enable_web_search, all_messages,
                         block_type = event.content_block.type
                         if block_type == 'thinking':
                             is_thinking = True
+                            thinking_started = time.monotonic()
                             set_status('Thinking')
                         elif block_type == 'server_tool_use':
                             print(f"Web search tool invoked: {getattr(event.content_block, 'name', '')}")
@@ -385,6 +390,9 @@ def run_turn(message_options, disable_thinking, enable_web_search, all_messages,
                 elif event.type == 'content_block_stop':
                     if is_thinking:
                         is_thinking = False
+                        if thinking_started is not None:
+                            thinking_seconds += time.monotonic() - thinking_started
+                            thinking_started = None
                     block = stream.current_message_snapshot.content[event.index]
                     query = block.input.get('query') if block.type == 'server_tool_use' and isinstance(block.input, dict) else None
                     if query:
@@ -433,6 +441,7 @@ def run_turn(message_options, disable_thinking, enable_web_search, all_messages,
                 'type': 'done',
                 'content': full_response,
                 'thinking': thinking_content if thinking_content else None,
+                'thinking_seconds': round(thinking_seconds, 1) if thinking_seconds else None,
                 'usage': usage,
                 'cached': 'cache_read_tokens' in usage,
                 'model': model
@@ -582,7 +591,8 @@ def run_turn(message_options, disable_thinking, enable_web_search, all_messages,
                         done_payload['content'] = full_response
 
             store.finish(done_payload['content'], thinking=done_payload['thinking'],
-                         citations=done_payload.get('citations'), model=done_payload['model'])
+                         citations=done_payload.get('citations'), model=done_payload['model'],
+                         thinking_seconds=done_payload['thinking_seconds'])
             emit(done_payload)
 
     except Exception as e:

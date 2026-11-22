@@ -1,25 +1,26 @@
 import React, { useState, useEffect, useRef } from 'react';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
-import { saveToGoogleDocs, initializeGoogleAPI, isGoogleAuthorized } from '../../services/googleDriveService';
+import { saveToGoogleDocs, initializeGoogleAPI } from '../../services/googleDriveService';
 
-function ExportMenu({ message, messageRef, onDelete }) {
+// `extraItems` ({ icon, label, onClick }) go at the top of the menu; `modelName` labels it.
+function ExportMenu({ message, messageRef, onDelete, extraItems = [], modelName = '' }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
   const [googleAPIInitialized, setGoogleAPIInitialized] = useState(false);
   const menuRef = useRef(null);
 
+  // Set up the Google API the first time the menu opens. Doing it on mount ran once per reply on
+  // every page load, for a menu most replies never open.
   useEffect(() => {
-    // Initialize Google API when component mounts
+    if (!isOpen || googleAPIInitialized) return;
     initializeGoogleAPI()
       .then(() => setGoogleAPIInitialized(true))
       .catch(err => {
         console.warn('Google API initialization failed:', err.message);
         setGoogleAPIInitialized(false);
       });
-  }, []);
+  }, [isOpen, googleAPIInitialized]);
 
   useEffect(() => {
     // Close menu when clicking outside
@@ -46,6 +47,9 @@ function ExportMenu({ message, messageRef, onDelete }) {
     
     try {
       if (messageRef && messageRef.current) {
+        // Loaded on first use: the two libraries were 15% of the main bundle's source, on every visit.
+        const [{ jsPDF }, { default: html2canvas }] = await Promise.all([import('jspdf'), import('html2canvas')]);
+
         // Create a temporary container for cleaner PDF export
         const tempDiv = document.createElement('div');
         tempDiv.style.position = 'absolute';
@@ -172,6 +176,17 @@ function ExportMenu({ message, messageRef, onDelete }) {
       
       {isOpen && (
         <div className="export-menu-dropdown">
+          {modelName && <div className="menu-label">{modelName}</div>}
+          {extraItems.map((item) => (
+            <button
+              key={item.label}
+              className="menu-item"
+              onClick={() => { item.onClick(); setIsOpen(false); }}
+            >
+              <span className="icon">{item.icon}</span>
+              <span>{item.label}</span>
+            </button>
+          ))}
           <button
             className="menu-item"
             onClick={handleExportToPDF}
@@ -211,7 +226,7 @@ function ExportMenu({ message, messageRef, onDelete }) {
           
           {onDelete && (
             <>
-              <div style={{ height: '1px', background: 'var(--border-color)', margin: '4px 0' }} />
+              <div style={{ height: '1px', background: 'var(--outline-variant)', margin: '4px 0' }} />
               <button
                 className="menu-item"
                 onClick={handleDelete}

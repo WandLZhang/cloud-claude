@@ -12,6 +12,11 @@ function LoadingSpinner({ size = 'medium', color = 'primary' }) {
   return (
     <>
       <style>{`
+        @keyframes spinner-appear {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+
         @keyframes spinner-rotate {
           100% {
             transform: rotate(360deg);
@@ -37,6 +42,9 @@ function LoadingSpinner({ size = 'medium', color = 'primary' }) {
         className="loading-spinner"
         style={{
           display: 'inline-block',
+          // Invisible for the first 400 ms: most loads finish sooner, and a spinner that shows for
+          // a moment reads as a flash.
+          animation: 'spinner-appear 0.2s ease-out 0.4s both',
           ...sizeClasses[size]
         }}
       >

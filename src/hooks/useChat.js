@@ -9,6 +9,7 @@ import {
 } from '../services/firebase';
 import { streamMessageToClaud } from '../services/messageService';
 import { runAssistantTurn } from '../services/assistantTurn';
+import { chatTitle } from '../components/Chat/format';
 
 /**
  * Put every assistant reply directly under the user message it answers.
@@ -42,13 +43,25 @@ function anchorReplies(sorted) {
   return anchored;
 }
 
+const NO_MESSAGES = [];
+
 export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) {
-  const [messages, setMessages] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [currentChatId, setCurrentChatId] = useState(selectedChatId);
+  // The messages Firestore delivered last, and the chat they belong to.
+  const [loaded, setLoaded] = useState({ chatId: null, messages: NO_MESSAGES });
   const [chatConfig, setChatConfig] = useState(selectedChatConfig); // Store chat-level config (e.g., disableThinking)
-  const messagesRef = useRef([]);
+  // Each chat opened in this session keeps its last messages here, so reopening it shows them at
+  // once while its listener catches up.
+  const cacheRef = useRef(new Map());
+  const messagesRef = useRef(NO_MESSAGES);
   const chatConfigRef = useRef(selectedChatConfig);
+
+  // The URL names the open chat (selectedChatId). Until that chat's first snapshot arrives, show
+  // what this session kept of it, never the chat shown before.
+  const currentChatId = selectedChatId;
+  const messages = loaded.chatId === currentChatId
+    ? loaded.messages
+    : (cacheRef.current.get(currentChatId) || NO_MESSAGES);
+  const loading = !!currentChatId && loaded.chatId !== currentChatId && !cacheRef.current.has(currentChatId);
   
   // Keep chatConfigRef in sync with chatConfig state
   useEffect(() => {
@@ -69,34 +82,23 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
   }, [messages]);
 
   useEffect(() => {
-    // Update currentChatId when selectedChatId changes
-    setCurrentChatId(selectedChatId);
-  }, [selectedChatId]);
+    if (!userId || !currentChatId) return undefined;
 
-  useEffect(() => {
-    if (!userId || !currentChatId) {
-      setMessages([]);
-      setLoading(false);
-      return;
-    }
-
-    // Clear messages and set loading state when switching chats
-    setMessages([]);
-    setLoading(true);
-    
     let unsubscribe = null;
     let updateTimeoutId = null;
-    
-    // Add a small delay to ensure proper cleanup
+    let first = true;
+
     const timeoutId = setTimeout(() => {
-      // Subscribe to messages only if we have a chat ID
       unsubscribe = subscribeToChat(userId, currentChatId, (newMessages) => {
         // Clear any pending update
         if (updateTimeoutId) {
           clearTimeout(updateTimeoutId);
         }
-        
-        // Debounce rapid updates to prevent rendering issues
+
+        // The first snapshot shows at once; later ones (a streaming reply writes often) are
+        // debounced to prevent rendering issues.
+        const delay = first ? 0 : 50;
+        first = false;
         updateTimeoutId = setTimeout(() => {
           // Sort by timestamp, then pull every reply under the message it answers.
           const byTime = [...newMessages].sort((a, b) => {
@@ -116,11 +118,11 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
             console.log('Streaming completed, locking message order');
           }
           
-          setMessages(sortedMessages);
-          setLoading(false);
-        }, 50); // Increased debounce for mobile stability
+          cacheRef.current.set(currentChatId, sortedMessages);
+          setLoaded({ chatId: currentChatId, messages: sortedMessages });
+        }, delay);
       });
-    }, 50);
+    }, 0);
 
     return () => {
       clearTimeout(timeoutId);
@@ -150,41 +152,34 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
     stream: streamMessageToClaud,
   }), [userId]);
 
-  const sendMessage = useCallback(async (content, image, newChatConfig = {}) => {
+  /**
+   * `ids` lets the caller name the documents up front so it can show the message before the writes
+   * finish: { userMessageId } for any send, plus { newChat: true, chatId } for a new chat.
+   */
+  const sendMessage = useCallback(async (content, image, newChatConfig = {}, ids = {}) => {
     if (!userId || (!content.trim() && !image && !newChatConfig.document)) return;
 
     try {
-      let chatId = currentChatId;
+      let chatId = ids.newChat ? ids.chatId : currentChatId;
       let isNewChat = false;
-      
-      // Use the latest messages from ref to avoid stale closure
-      const currentMessages = messagesRef.current;
-      
+
+      // Use the latest messages from ref to avoid stale closure. A new chat starts empty, whatever
+      // chat this hook showed last.
+      const currentMessages = ids.newChat ? [] : messagesRef.current;
+
       // Merge stored config with new config (new values override stored ones)
-      const effectiveConfig = { ...chatConfigRef.current, ...newChatConfig };
-      
+      const effectiveConfig = ids.newChat ? { ...newChatConfig } : { ...chatConfigRef.current, ...newChatConfig };
+
       // Create chat only on first message
-      if (!chatId) {
-        // Generate title from first message
-        let title = 'New Chat';
-        if (content && content.trim()) {
-          const cleanContent = content.trim().replace(/\n+/g, ' ');
-          title = cleanContent.length > 40 
-            ? cleanContent.substring(0, 40) + '...' 
-            : cleanContent;
-        } else if (image) {
-          title = 'Image Chat';
-        }
-        
+      if (!chatId || ids.newChat) {
         // Include config in chat document for persistence across reloads
-        const chatData = { title };
+        const chatData = { title: chatTitle(content, !!image) };
         if (newChatConfig.disableThinking) chatData.disableThinking = true;
         if (newChatConfig.useFastModel) chatData.useFastModel = true;
         if (newChatConfig.enableWebSearch) chatData.enableWebSearch = true;
         if (newChatConfig.systemPrompt) chatData.systemPrompt = newChatConfig.systemPrompt;
         
-        chatId = await createChat(userId, chatData);
-        setCurrentChatId(chatId);
+        chatId = await createChat(userId, chatData, ids.chatId || null);
         setChatConfig(newChatConfig); // Store config for subsequent messages
         isNewChat = true;
       }
@@ -225,7 +220,7 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
         effectiveConfig.enableWebSearch = true;
       }
 
-      const userMessageId = await addMessage(userId, chatId, userMessage);
+      const userMessageId = await addMessage(userId, chatId, userMessage, ids.userMessageId || null);
 
       const turn = {
         chatId,
@@ -254,19 +249,27 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
     }
   }, [userId, currentChatId, streamAssistantTurn]);
 
-  const switchChat = useCallback((chatId) => {
-    if (chatId !== currentChatId) {
-      setMessages([]);
-      setLoading(true);
-      setCurrentChatId(chatId);
-    }
-  }, [currentChatId]);
+  // Ask again for a reply to `userMessage`, as a new reply under it; the earlier reply stays.
+  // `history` is every message before `userMessage`.
+  const retryReply = useCallback(async (userMessage, history) => {
+    if (!userId || !currentChatId) return;
+    const config = { ...chatConfigRef.current };
+    if (userMessage.document) config.document = userMessage.document;
+    await streamAssistantTurn({
+      chatId: currentChatId,
+      userMessageId: userMessage.id,
+      history,
+      content: userMessage.content || '',
+      image: userMessage.image,
+      config,
+    });
+  }, [userId, currentChatId, streamAssistantTurn]);
 
   return {
     messages,
     sendMessage,
+    retryReply,
     loading,
     currentChatId,
-    switchChat
   };
 }

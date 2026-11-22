@@ -4,7 +4,7 @@
     <meta charset="utf-8" />
     <link rel="icon" href="%PUBLIC_URL%/favicon.svg" type="image/svg+xml" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" />
-    <meta name="theme-color" content="#000000" />
+    <meta name="theme-color" content="#f9f9f8" />
     <meta
       name="description"
       content="Cloud Claude Chat - A mobile-friendly chat application powered by Claude AI"
@@ -28,6 +28,14 @@
     </style>
   </head>
   <body>
+    <script>
+      // The saved theme applies before the first paint, so a dark-mode load doesn't start light.
+      try {
+        var savedTheme = localStorage.getItem('theme') === 'dark' ? 'dark' : 'light';
+        document.body.className = savedTheme;
+        document.querySelector('meta[name="theme-color"]').setAttribute('content', savedTheme === 'dark' ? '#141414' : '#f9f9f8');
+      } catch (e) {}
+    </script>
     <noscript>You need to enable JavaScript to run this app.</noscript>
     <div id="root"></div>
   </body>

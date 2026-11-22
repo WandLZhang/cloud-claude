@@ -77,9 +77,9 @@
     font-size: 1.5rem;
   }
   
+  /* The phone header carries the theme toggle and avatar. */
   .home-controls {
-    top: var(--unit-3);
-    right: var(--unit-3);
+    display: none;
   }
   
   .home-main-content {
@@ -92,7 +92,6 @@
   margin-top: var(--unit-4);
   width: 100%;
   max-width: 800px;
-  animation: fadeIn 0.5s ease-out;
 }
 
 @keyframes fadeIn {

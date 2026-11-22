@@ -4,6 +4,7 @@
   z-index: 10;
 }
 
+/* Hidden until the reply is hovered. Touch screens have no hover, so they always show it, faintly. */
 .export-menu-button {
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -13,8 +14,14 @@
   opacity: 1;
 }
 
+@media (hover: none) {
+  .export-menu-button {
+    opacity: 0.55;
+  }
+}
+
 .export-menu-button:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--surface-container);
 }
 
 .export-menu-dropdown {
@@ -22,13 +29,20 @@
   top: 100%;
   right: 0;
   margin-top: var(--unit-1);
-  background: white;
-  border: 1px solid var(--border-color);
-  border-radius: var(--unit-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: var(--unit-1) 0;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px var(--shadow);
   min-width: 200px;
   z-index: 9999;
   overflow: hidden;
+}
+
+.export-menu-dropdown .menu-label {
+  padding: var(--unit-1) var(--unit-3);
+  font-size: 12px;
+  color: var(--on-surface-variant);
 }
 
 .export-menu-dropdown .menu-item {
@@ -40,14 +54,14 @@
   border: none;
   background: none;
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--on-surface);
   text-align: left;
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
 .export-menu-dropdown .menu-item:hover {
-  background-color: var(--bg-secondary);
+  background-color: var(--surface-container);
 }
 
 .export-menu-dropdown .menu-item:disabled {
@@ -57,21 +71,21 @@
 
 .export-menu-dropdown .menu-item .icon {
   font-size: 18px;
-  color: var(--text-secondary);
+  color: var(--on-surface-variant);
 }
 
 .export-status {
   position: absolute;
   top: calc(100% + var(--unit-1));
   right: 0;
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
   border-radius: var(--unit-1);
   padding: var(--unit-1) var(--unit-2);
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--on-surface-variant);
   white-space: nowrap;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 2px 6px var(--shadow);
   animation: fadeIn 0.2s ease;
   z-index: 9999;
 }
@@ -85,18 +99,4 @@
     opacity: 1;
     transform: translateY(0);
   }
-}
-
-/* Dark mode support */
-[data-theme="dark"] .export-menu-dropdown {
-  background: var(--bg-primary);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .export-menu-button:hover {
-  background-color: rgba(255, 255, 255, 0.1);
-}
-
-[data-theme="dark"] .export-status {
-  background: var(--bg-secondary);
 }

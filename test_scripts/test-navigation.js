@@ -1,8 +1,9 @@
 // Navigation end to end, signed in as the throwaway user (mint the session first):
 //   functions/chat/.venv/bin/python test_scripts/e2e_session.py
 //   NODE_PATH=$PWD/node_modules node test_scripts/test-navigation.js [desktop|phone]
+// A local build: node test_scripts/serve-build.js, then APP_URL=http://localhost:3100.
 //   functions/chat/.venv/bin/python test_scripts/e2e_session.py --cleanup
-// APP_URL picks the build (default production). Each send costs one short Claude reply.
+// Each send costs one short Claude reply.
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
 
@@ -67,11 +68,10 @@ async function lastReplyIncludes(page, text, timeoutMs) {
     user: document.querySelectorAll('.message-user').length,
     assistant: document.querySelectorAll('.message-assistant').length,
   }));
+  // Desktop always shows the sidebar; a phone opens it from the header's menu button.
   const openSidebar = async () => {
-    const open = await page.locator('.chat-sidebar.open').count();
-    const listShown = !PHONE && await page.locator('.chat-item').first().isVisible().catch(() => false);
-    if (!open && !listShown) {
-      await page.click('.sidebar-toggle');
+    if (PHONE && !(await page.locator('.chat-sidebar.open').count())) {
+      await page.click('.mobile-header button[aria-label="Open sidebar"]');
       await page.waitForTimeout(400);
     }
   };
@@ -89,10 +89,10 @@ async function lastReplyIncludes(page, text, timeoutMs) {
   check('the reply arrives in that chat', await lastReplyIncludes(page, 'navigation check', 90000), await view());
 
   await openSidebar();
-  await page.locator('.sidebar-bottom button').click();
+  await page.click('.chat-sidebar button[aria-label="New chat"]');
   await page.waitForTimeout(1500);
   v = await view();
-  check('Start New Chat goes home', v.home && v.path === '/', v);
+  check('New chat goes home', v.home && v.path === '/', v);
 
   await openSidebar();
   await page.locator('.chat-item').first().click();
@@ -116,7 +116,7 @@ async function lastReplyIncludes(page, text, timeoutMs) {
   check('forward returns to the chat', v.chat && v.path === chatPath, v);
 
   await openSidebar();
-  await page.click('.starred-chats-button');
+  await page.click('.chat-sidebar button[aria-label="Starred chats"]');
   await page.waitForTimeout(1500);
   v = await view();
   check('Starred opens the starred view', v.starred && v.path === '/starred', v);

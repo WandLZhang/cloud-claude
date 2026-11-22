@@ -4,6 +4,7 @@
   z-index: 10;
 }
 
+/* Hidden until the message is hovered. Touch screens have no hover, so they always show it, faintly. */
 .user-message-menu-button {
   opacity: 0;
   transition: opacity 0.2s ease;
@@ -13,8 +14,14 @@
   opacity: 1;
 }
 
+@media (hover: none) {
+  .user-message-menu-button {
+    opacity: 0.55;
+  }
+}
+
 .user-message-menu-button:hover {
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: var(--surface-container-high);
 }
 
 .user-message-menu-dropdown {
@@ -22,10 +29,11 @@
   top: 100%;
   right: 0;
   margin-top: var(--unit-1);
-  background: white;
-  border: 1px solid var(--border-color);
-  border-radius: var(--unit-2);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  padding: var(--unit-1) 0;
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 20px var(--shadow);
   min-width: 150px;
   z-index: 9999;
   overflow: hidden;
@@ -40,29 +48,19 @@
   border: none;
   background: none;
   font-size: 14px;
-  color: var(--text-primary);
+  color: var(--on-surface);
   text-align: left;
   cursor: pointer;
   transition: background-color 0.2s ease;
 }
 
 .user-message-menu-dropdown .menu-item:hover {
-  background-color: var(--bg-secondary);
+  background-color: var(--surface-container);
 }
 
 .user-message-menu-dropdown .menu-item .icon {
   font-size: 18px;
-  color: var(--text-secondary);
-}
-
-/* Dark mode support */
-[data-theme="dark"] .user-message-menu-dropdown {
-  background: var(--bg-primary);
-  border-color: var(--border-color);
-}
-
-[data-theme="dark"] .user-message-menu-button:hover {
-  background-color: rgba(255, 255, 255, 0.1);
+  color: var(--on-surface-variant);
 }
 
 /* Edit mode styles */
@@ -80,12 +78,12 @@
   font-family: inherit;
   font-size: inherit;
   line-height: 1.5;
-  border: 1px solid var(--primary-color);
-  border-radius: var(--unit-1);
+  border: 1px solid var(--outline);
+  border-radius: var(--unit-2);
   resize: vertical;
   outline: none;
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--surface-container-lowest);
+  color: var(--on-surface);
 }
 
 .message-edit-actions {
@@ -97,34 +95,34 @@
 .message-edit-actions button {
   padding: var(--unit-1) var(--unit-3);
   font-size: 14px;
-  border-radius: var(--unit-1);
+  border-radius: var(--unit-2);
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .save-button {
-  background: var(--primary-color);
-  color: white;
+  background: var(--primary);
+  color: var(--on-primary);
   border: none;
 }
 
 .save-button:hover {
-  background: var(--primary-color-dark);
+  opacity: 0.9;
 }
 
 .cancel-button {
   background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color);
+  color: var(--on-surface-variant);
+  border: 1px solid var(--outline-variant);
 }
 
 .cancel-button:hover {
-  background: var(--bg-secondary);
+  background: var(--surface-container);
 }
 
 /* User message specific menu positioning */
 .message-user .user-message-menu-wrapper {
   position: absolute;
-  top: var(--unit-2);
-  right: var(--unit-2);
+  top: var(--unit-1);
+  right: var(--unit-1);
 }
