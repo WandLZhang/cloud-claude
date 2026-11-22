@@ -428,8 +428,9 @@ function noisePng(page) {
   const edges = Object.values(homeLayout.edges);
   const homeSurround = await composerSurround(page, '.home-main-content');
   check('home runs down to the composer, with no band or background around it', surroundClear(homeSurround), homeSurround);
-  check('the prompt picker, the recent chats and the composer share one left edge',
-    edges.every((x) => x !== null) && Math.max(...edges) - Math.min(...edges) <= 1, homeLayout.edges);
+  check("the prompt picker and the recent chats share one left edge, clear of the composer card's rounded corners",
+    edges.every((x) => x !== null) && Math.abs(homeLayout.edges.picker - homeLayout.edges.recent) <= 1
+    && homeLayout.edges.picker >= homeLayout.edges.composer + 16, homeLayout.edges);
   check('the keyboard resizes the page instead of covering it', homeLayout.viewport.includes('interactive-widget=resizes-content'), homeLayout);
   await page.tap('textarea.chat-input');
   const focusedBox = await page.evaluate(() => {
@@ -488,18 +489,26 @@ function noisePng(page) {
   check('the composer leaves the text at least 300 px on a phone', phone.textareaWidth >= 300, phone);
   const chatSurround = await composerSurround(page, '.messages-container');
   check('a chat runs down to the composer, with no band or background around it', surroundClear(chatSurround), chatSurround);
-  const chatEdges = await page.evaluate(() => {
-    const mc = document.querySelector('.messages-container');
-    const cs = getComputedStyle(mc);
-    const r = mc.getBoundingClientRect();
-    const card = document.querySelector('.input-wrapper').getBoundingClientRect();
+  // The conversation's widest blocks (bubbles, tables, code) against the composer card, as in CloudCLI.
+  const chatGeometry = await page.evaluate(() => {
+    const blocks = Array.from(document.querySelectorAll('.message-bubble, .message-content .table-scroll, .message-content .code-block'))
+      .map((b) => b.getBoundingClientRect());
+    const card = document.querySelector('.input-wrapper');
+    const c = card.getBoundingClientRect();
+    const ta = getComputedStyle(document.querySelector('textarea.chat-input'));
     return {
-      textColumn: { left: Math.round(r.left + parseFloat(cs.paddingLeft)), right: Math.round(r.right - parseFloat(cs.paddingRight)) },
-      composer: { left: Math.round(card.left), right: Math.round(card.right) },
+      conversation: { left: Math.round(Math.min(...blocks.map((b) => b.left))), right: Math.round(Math.max(...blocks.map((b) => b.right))) },
+      card: { left: Math.round(c.left), right: Math.round(c.right), radius: parseFloat(getComputedStyle(card).borderTopLeftRadius) },
+      text: `${ta.fontSize}/${ta.lineHeight}`,
+      send: Math.round(document.querySelector('.send-button').getBoundingClientRect().width),
     };
   });
-  check('the composer is as wide as the text above it, so no empty strip shows beside it',
-    chatEdges.composer.left <= chatEdges.textColumn.left + 1 && chatEdges.composer.right >= chatEdges.textColumn.right - 1, chatEdges);
+  check("the conversation stays clear of the composer card's rounded corners, so nothing is cut off at them",
+    chatGeometry.conversation.left >= chatGeometry.card.left + chatGeometry.card.radius
+    && chatGeometry.conversation.right <= chatGeometry.card.right - chatGeometry.card.radius, chatGeometry);
+  check("at 390 px the conversation and composer use CloudCLI's dimensions: text 28 to 362 px, card 8 to 382 px, 16 px corners, 15/24 px text, 40 px Send",
+    chatGeometry.conversation.left === 28 && chatGeometry.conversation.right === 362 && chatGeometry.card.left === 8
+    && chatGeometry.card.right === 382 && chatGeometry.card.radius === 16 && chatGeometry.text === '15px/24px' && chatGeometry.send === 40, chatGeometry);
 
   // With the keyboard up, the chat keeps its newest message in view above the composer.
   await page.setViewportSize({ width: 390, height: 500 });

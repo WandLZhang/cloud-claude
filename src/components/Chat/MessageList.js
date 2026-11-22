@@ -208,7 +208,7 @@ function MessageList({ messages, latestReplyId, onRetry, isThinking, loading, on
           </p>
         </div>
       ) : (
-        <div ref={innerRef}>
+        <div ref={innerRef} className="messages-list">
           {messages.map((message) => (
             <div 
               key={message.id}

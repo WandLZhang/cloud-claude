@@ -55,6 +55,9 @@ body {
   overflow: hidden;
 }
 
+/* The conversation's widths are CloudCLI's: a 16 px gutter and a 1280 px cap; on a phone, each
+   message sits 12 px further in, so tables, code and bubbles stay clear of the composer card's
+   rounded corners (the card is 8 px from the edge, its corners reach 24 px). */
 .messages-container {
   flex: 1;
   overflow-y: auto;
@@ -62,8 +65,28 @@ body {
   background-color: var(--surface);
 }
 
+.messages-list {
+  max-width: 1280px;
+  margin: 0 auto;
+}
+
 .message {
   margin-bottom: var(--unit-4);
+}
+
+.messages-list > :last-child > .message {
+  margin-bottom: 0;
+}
+
+@media (max-width: 639px) {
+  .messages-container {
+    padding: 12px var(--unit-4);
+  }
+
+  .message {
+    padding: 0 12px;
+    margin-bottom: 12px;
+  }
 }
 
 .message-user,
@@ -169,10 +192,6 @@ body {
 
 /* Mobile optimizations */
 @media (max-width: 768px) {
-  .messages-container {
-    padding: var(--unit-2);
-  }
-  
   /* Prevent iOS bounce effect */
   .app-container {
     position: fixed;
@@ -183,11 +202,11 @@ body {
 }
 
 /* Input area styles */
-/* The composer is one card, as in CloudCLI: no band above it and no background around it, so the
-   messages or the home list run right down to its top edge. Its side margins match the text
-   column's (8 px on a phone, 16 px wider), so no empty strip shows beside it. */
+/* The composer is CloudCLI's card: no band above it and no background around it, so the messages or
+   the home list run right down to its top edge. Its margins are CloudCLI's: 8 px on a phone, 16 px
+   from 640 px, and 24 px under it from 768 px; it shares the conversation's 1280 px cap. */
 .input-container {
-  padding: 0 var(--unit-4) var(--unit-4);
+  padding: 0 var(--unit-4) var(--unit-6);
   background: none;
   display: flex;
   align-items: flex-end;
@@ -196,7 +215,13 @@ body {
   max-width: 100%;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
+  .input-container {
+    padding: 0 var(--unit-4) var(--unit-4);
+  }
+}
+
+@media (max-width: 639px) {
   .input-container {
     padding: 0 var(--unit-2) var(--unit-2);
   }
@@ -205,11 +230,13 @@ body {
 .input-wrapper {
   flex: 1 1 0px;
   min-width: 0;
+  max-width: 1280px;
+  margin: 0 auto;
   overflow: hidden;
   position: relative;
   background: var(--surface-container-lowest);
-  border: 1px solid var(--outline-variant);
-  border-radius: 18px;
+  border: 1px solid #e3e1de;   /* CloudCLI's card border */
+  border-radius: 16px;
   padding: 0;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   transition: border-color 0.15s ease;
@@ -221,6 +248,7 @@ body {
 
 .dark .input-wrapper {
   background: var(--surface-container-low);
+  border-color: var(--outline-variant);
 }
 
 /* Attachments and the batch queue, above the text */
@@ -232,21 +260,21 @@ body {
   display: none;
 }
 
-/* The text gets the card's full width on its own line */
+/* The text gets the card's full width on its own line: 15 px on 24 px lines, as in CloudCLI */
 .chat-input {
   display: block;
   width: 100%;
   min-width: 0;
   max-height: 160px;
-  min-height: 36px;
-  padding: 12px 14px 4px;
+  min-height: 40px;
+  padding: 12px 16px 4px;
   border: none;
   border-radius: 0;
   background-color: transparent;
   color: var(--on-surface);
   font-family: var(--font);
-  font-size: 0.875rem;
-  line-height: 20px;
+  font-size: 15px;
+  line-height: 24px;
   resize: none;
   outline: none;
 }
@@ -761,13 +789,13 @@ body {
   height: 30px;
 }
 
-/* The row under the text: small tools on the left, Send at the right end, both 6 px from the
-   card's edges. */
+/* The row under the text: small tools on the left, Send at the right end, 10 px from the card's
+   edges (CloudCLI's footer). */
 .composer-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 6px 6px;
+  padding: 4px 10px 8px;
 }
 
 .composer-tools {
@@ -780,7 +808,7 @@ body {
   width: 32px;
   height: 32px;
   padding: 6px;
-  border-radius: 8px;
+  border-radius: 10px;
 }
 
 .icon-button.composer-tool .icon {
@@ -797,8 +825,8 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   margin: 0;
   padding: 0;
   border: none;
@@ -823,5 +851,5 @@ body {
 }
 
 .send-button .icon {
-  font-size: 18px;
+  font-size: 20px;
 }

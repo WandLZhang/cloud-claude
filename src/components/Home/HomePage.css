@@ -78,10 +78,13 @@
   .home-controls {
     display: none;
   }
+}
 
-  /* 8 px from the edge, as the messages and the composer card are */
+/* On a phone the home list sits where message text does (28 px in), clear of the composer card's
+   rounded corners. */
+@media (max-width: 639px) {
   .home-main-content {
-    padding: var(--unit-4) var(--unit-2);
+    padding: var(--unit-4) 28px;
   }
 }
 
