@@ -44,7 +44,6 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
   const [editedContent, setEditedContent] = useState(message.content || '');
   const [now, setNow] = useState(() => Date.now());
   const [showThinking, setShowThinking] = useState(false);
-  const [copied, setCopied] = useState(false);
 
   // While a reply streams, tick each second: the status line shows how long it has run, and a reply
   // whose turn died never gets another Firestore update, so its age decides when it reads as stopped.
@@ -85,30 +84,25 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
     await onDeleteMessage(userId, chatId, message.id);
   };
 
-  const handleCopyReply = async () => {
-    try {
-      await navigator.clipboard.writeText(message.content || '');
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      console.error('[MessageItem] copy failed:', err);
-    }
-  };
-
-  // Older replies keep their actions in the corner menu, so they take no extra height.
+  // A finished reply keeps its actions in the corner ⋮ menu, so nothing sits under its text. Retry
+  // is on the latest reply only; a failed reply has no text, so its menu holds just Retry and Delete.
   const menuItems = [];
-  if (hasThinking && !isLatestReply) {
+  if (isLatestReply && onRetry) {
+    menuItems.push({ icon: 'refresh', label: 'Retry', onClick: () => onRetry(message) });
+  }
+  if (hasThinking) {
     menuItems.push({
       icon: 'psychology',
       label: showThinking ? 'Hide thinking' : thinkingLabel(message.thinkingSeconds),
       onClick: () => setShowThinking(!showThinking),
     });
   }
+  const showMenu = finished && (!!message.content || menuItems.length > 0);
 
   return (
     <div className={`message message-${isUser ? 'user' : 'assistant'}`}>
       <div className="message-bubble" ref={!isUser ? messageRef : null} style={{ position: 'relative' }}>
-        {!isUser && !isStreaming && message.content && (
+        {showMenu && (
           <div className="reply-menu">
             <ExportMenu
               message={message}
@@ -256,29 +250,6 @@ function MessageItem({ message, onUpdateMessage, onDeleteMessage, userId, chatId
                     </a>
                   ))}
                 </div>
-              </div>
-            )}
-            {isLatestReply && finished && (
-              <div className="reply-footer">
-                {hasThinking && (
-                  <button type="button" className="reply-action" onClick={() => setShowThinking(!showThinking)}>
-                    <span className="icon">psychology</span>
-                    {showThinking ? 'Hide thinking' : thinkingLabel(message.thinkingSeconds)}
-                  </button>
-                )}
-                {message.content && (
-                  <button type="button" className="reply-action" onClick={handleCopyReply} aria-label="Copy reply">
-                    <span className="icon">{copied ? 'check' : 'content_copy'}</span>
-                    {copied ? 'Copied' : 'Copy'}
-                  </button>
-                )}
-                {onRetry && (
-                  <button type="button" className="reply-action" onClick={() => onRetry(message)} aria-label="Retry">
-                    <span className="icon">refresh</span>
-                    Retry
-                  </button>
-                )}
-                {message.model && <span className="reply-model">{modelLabel(message.model)}</span>}
               </div>
             )}
           </div>

@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CopyToClipboard } from 'react-copy-to-clipboard';
 import { saveToGoogleDocs, initializeGoogleAPI } from '../../services/googleDriveService';
 
-// `extraItems` ({ icon, label, onClick }) go at the top of the menu; `modelName` labels it.
+// A reply's ⋮ menu: the model as its label, Copy, `extraItems` ({ icon, label, onClick }: Retry and
+// the thinking toggle), the exports, Delete. A reply with no text (it failed) gets no Copy or exports.
 function ExportMenu({ message, messageRef, onDelete, extraItems = [], modelName = '' }) {
+  const hasContent = !!message.content;
   const [isOpen, setIsOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportStatus, setExportStatus] = useState('');
@@ -168,7 +170,8 @@ function ExportMenu({ message, messageRef, onDelete, extraItems = [], modelName 
       <button
         className="icon-button small export-menu-button"
         onClick={handleMenuClick}
-        title="Export options"
+        title="Reply options"
+        aria-label="Reply options"
         disabled={isExporting}
       >
         <span className="icon">more_vert</span>
@@ -177,6 +180,14 @@ function ExportMenu({ message, messageRef, onDelete, extraItems = [], modelName 
       {isOpen && (
         <div className="export-menu-dropdown">
           {modelName && <div className="menu-label">{modelName}</div>}
+          {hasContent && (
+            <CopyToClipboard text={message.content} onCopy={handleCopySuccess}>
+              <button className="menu-item" disabled={isExporting}>
+                <span className="icon">content_copy</span>
+                <span>Copy</span>
+              </button>
+            </CopyToClipboard>
+          )}
           {extraItems.map((item) => (
             <button
               key={item.label}
@@ -187,42 +198,33 @@ function ExportMenu({ message, messageRef, onDelete, extraItems = [], modelName 
               <span>{item.label}</span>
             </button>
           ))}
-          <button
-            className="menu-item"
-            onClick={handleExportToPDF}
-            disabled={isExporting}
-          >
-            <span className="icon">picture_as_pdf</span>
-            <span>Export as PDF</span>
-          </button>
-          
-          <button
-            className="menu-item"
-            onClick={handleSaveToGoogleDocs}
-            disabled={isExporting || !googleAPIInitialized}
-            title={!googleAPIInitialized ? 'Google API not configured' : ''}
-          >
-            <span className="icon">description</span>
-            <span>Save to Google Docs</span>
-            {!googleAPIInitialized && (
-              <span style={{ fontSize: '0.75em', opacity: 0.7, marginLeft: 'auto' }}>
-                (Not configured)
-              </span>
-            )}
-          </button>
-          
-          <CopyToClipboard 
-            text={message.content}
-            onCopy={handleCopySuccess}
-          >
+          {hasContent && (
             <button
               className="menu-item"
+              onClick={handleExportToPDF}
               disabled={isExporting}
             >
-              <span className="icon">content_copy</span>
-              <span>Copy to Clipboard</span>
+              <span className="icon">picture_as_pdf</span>
+              <span>Export as PDF</span>
             </button>
-          </CopyToClipboard>
+          )}
+
+          {hasContent && (
+            <button
+              className="menu-item"
+              onClick={handleSaveToGoogleDocs}
+              disabled={isExporting || !googleAPIInitialized}
+              title={!googleAPIInitialized ? 'Google API not configured' : ''}
+            >
+              <span className="icon">description</span>
+              <span>Save to Google Docs</span>
+              {!googleAPIInitialized && (
+                <span style={{ fontSize: '0.75em', opacity: 0.7, marginLeft: 'auto' }}>
+                  (Not configured)
+                </span>
+              )}
+            </button>
+          )}
           
           {onDelete && (
             <>

@@ -1,10 +1,10 @@
 // The UI end to end, signed in as the throwaway user (mint the session first; see test-navigation.js):
-// instant send with a photo, the elapsed status, the latest reply's footer (thinking, Copy, Retry,
-// model), code blocks, headings, tables, Retry, the sidebar's top row and Ctrl+K, a cold load and a
-// reopen (no light frame, spinner or entrance animation; the chat whole and at the bottom),
-// dark-mode menus, then the phone header, home and composer, including with the keyboard up.
-// Three real Claude replies; screenshots go to /tmp/cloud-claude-e2e/. A reply's footer is checked
-// against what Firestore saved: Claude's adaptive thinking skips some replies.
+// instant send with a photo, the elapsed status, the reply's ⋮ menu (model, Copy, Retry, thinking)
+// with nothing under the reply, code blocks, headings, tables, Retry, the sidebar's top row and
+// Ctrl+K, a cold load and a reopen (no light frame, spinner or entrance animation; the chat whole
+// and at the bottom), dark-mode menus, then the phone header, home and composer, including with the
+// keyboard up. Three real Claude replies; screenshots go to /tmp/cloud-claude-e2e/. A reply's menu
+// is checked against what Firestore saved: Claude's adaptive thinking skips some replies.
 //   NODE_PATH=$PWD/node_modules node test_scripts/test-ui.js
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
@@ -40,19 +40,36 @@ async function savedReply(chatId, messageId) {
   };
 }
 
-// The latest reply's id, its footer's buttons and model, and the open chat's id.
+// The latest reply's id and the open chat's id.
 function latestReply(page) {
   return page.evaluate(() => {
     const replies = document.querySelectorAll('.message-assistant');
     const reply = replies[replies.length - 1];
-    const f = reply?.querySelector('.reply-footer');
-    return {
-      chatId: location.pathname.split('/').pop(),
-      id: (reply?.parentElement.id || '').slice('message-'.length),
-      buttons: f ? Array.from(f.querySelectorAll('button')).map((b) => b.textContent.replace(/\s+/g, ' ').trim()) : [],
-      model: f?.querySelector('.reply-model')?.textContent || null,
-    };
+    return { chatId: location.pathname.split('/').pop(), id: (reply?.parentElement.id || '').slice('message-'.length) };
   });
+}
+
+// A reply's ⋮ menu (`which` is 'last' or an index): open it, read it, choose an item, close it.
+const replyAt = (page, which) => (which === 'last' ? page.locator('.message-assistant').last() : page.locator('.message-assistant').nth(which));
+async function openReplyMenu(page, which = 'last') {
+  const reply = replyAt(page, which);
+  await reply.locator('.message-bubble').first().hover();
+  await reply.locator('.reply-menu .export-menu-button').click();
+  const menu = reply.locator('.export-menu-dropdown');
+  await menu.waitFor({ timeout: 5000 });
+  return menu.evaluate((m) => ({
+    model: m.querySelector('.menu-label')?.textContent || null,
+    items: Array.from(m.querySelectorAll('.menu-item')).map((b) => b.textContent.replace(/\s+/g, ' ').trim()),
+  }));
+}
+async function chooseInReplyMenu(page, text, which = 'last') {
+  const reply = replyAt(page, which);
+  if (!(await reply.locator('.export-menu-dropdown').count())) await openReplyMenu(page, which);
+  await reply.locator('.export-menu-dropdown .menu-item', { hasText: text }).click();
+}
+async function closeReplyMenu(page, which = 'last') {
+  const reply = replyAt(page, which);
+  if (await reply.locator('.export-menu-dropdown').count()) await reply.locator('.reply-menu .export-menu-button').click();
 }
 
 async function signedIn(browser, options) {
@@ -151,11 +168,13 @@ const surroundClear = (s) => Math.abs(s.contentToComposerGap) <= 1
 // Send sits level with the lower row of tools, as far from the right edge as the tools are from the left.
 const sendAligned = (c) => Math.abs(c.sendOffset) <= 1.5 && Math.abs(c.sendRightGap - c.toolsLeftGap) <= 1;
 
-// Wait until the last reply has finished (its footer shows); returns the reply count.
+// Wait until the last reply has finished: its ⋮ menu appears only then.
 async function waitForLatestReply(page, timeoutMs = 180000) {
-  await page.waitForSelector('.message-assistant:last-child .reply-footer, .message-assistant .reply-footer', { timeout: timeoutMs });
+  await page.waitForFunction(() => {
+    const replies = document.querySelectorAll('.message-assistant');
+    return replies.length > 0 && !!replies[replies.length - 1].querySelector('.reply-menu');
+  }, null, { timeout: timeoutMs });
   await page.waitForTimeout(800);
-  return page.locator('.message-assistant').count();
 }
 
 // A noisy PNG, large enough that its upload takes a noticeable moment.
@@ -223,23 +242,31 @@ function noisePng(page) {
   await waitForLatestReply(page);
   const photoReply = await latestReply(page);
   const photoSaved = await savedReply(photoReply.chatId, photoReply.id);
-  check('the latest reply has a footer with Copy, Retry and the model, and "Thought for N s" exactly when it thought',
-    photoReply.buttons.some((b) => b.includes('Copy')) && photoReply.buttons.some((b) => b.includes('Retry')) && !!photoReply.model
-    && photoReply.buttons.some((b) => b.includes('Thought for')) === (photoSaved.thinkingChars > 0), { ...photoReply, saved: photoSaved });
+  const nothingUnder = await page.evaluate(() => {
+    const replies = document.querySelectorAll('.message-assistant');
+    const content = replies[replies.length - 1].querySelector('.message-content');
+    return { lastBlock: content.lastElementChild?.tagName || null, buttonsInText: content.querySelectorAll('button:not(.code-block-copy)').length };
+  });
+  check('nothing sits under the reply: no buttons in its text, which ends with its last paragraph',
+    nothingUnder.buttonsInText === 0 && nothingUnder.lastBlock === 'P', nothingUnder);
+  const photoMenu = await openReplyMenu(page);
+  check('the reply\'s ⋮ menu has the model, Copy and Retry, and "Thought for N s" when the reply thought',
+    !!photoMenu.model && photoMenu.items.some((i) => i.includes('Copy')) && photoMenu.items.some((i) => i.includes('Retry'))
+    && photoMenu.items.some((i) => i.includes('Thought for')) === (photoSaved.thinkingChars > 0), { ...photoMenu, saved: photoSaved });
 
   // The thinking toggle is tested on the first of the three replies that thought.
   let thinkingToggleTested = false;
   const tryThinkingToggle = async (saved) => {
     if (thinkingToggleTested || saved.thinkingChars === 0) return;
     thinkingToggleTested = true;
-    await page.locator('.reply-footer button', { hasText: 'Thought for' }).click();
-    const shown = await page.evaluate(() => document.querySelector('.reply-footer')?.closest('.message-content')?.querySelector('.thinking-text')?.innerText || '');
-    check('"Thought for N s" opens the thinking', shown.length > 20, { shownChars: shown.length, saved });
-    await page.locator('.reply-footer button', { hasText: 'Hide thinking' }).click();
+    await chooseInReplyMenu(page, 'Thought for');
+    const shown = await replyAt(page, 'last').evaluate((el) => el.querySelector('.thinking-text')?.innerText || '');
+    check('"Thought for N s" in the ⋮ menu opens the thinking', shown.length > 20, { shownChars: shown.length, saved });
+    await chooseInReplyMenu(page, 'Hide thinking');
   };
   await tryThinkingToggle(photoSaved);
 
-  await page.locator('.reply-footer button', { hasText: 'Copy' }).click();
+  await chooseInReplyMenu(page, 'Copy');
   const copied = await page.evaluate(() => navigator.clipboard.readText());
   const replyText = await page.evaluate(() => document.querySelector('.message-assistant .message-content > p')?.innerText || '');
   check('Copy puts the reply on the clipboard', copied.length > 0 && replyText.length > 0 && copied.includes(replyText.slice(0, 20)), { copied: copied.slice(0, 80) });
@@ -250,7 +277,7 @@ function noisePng(page) {
   await page.waitForFunction(() => document.querySelectorAll('.message-user').length === 2, null, { timeout: 10000 });
   await page.waitForFunction(() => {
     const replies = document.querySelectorAll('.message-assistant');
-    return replies.length === 2 && replies[1].querySelector('.reply-footer');
+    return replies.length === 2 && replies[1].querySelector('.reply-menu');
   }, null, { timeout: 180000 });
   await page.waitForTimeout(800);
   const mdReply = await latestReply(page);
@@ -271,14 +298,18 @@ function noisePng(page) {
       h2Color: h2 ? getComputedStyle(h2).color : null,
       pColor: p ? getComputedStyle(p).color : null,
       thFill: th ? getComputedStyle(th).backgroundColor : null,
-      footers: Array.from(document.querySelectorAll('.message-assistant')).map((r) => !!r.querySelector('.reply-footer')),
     };
   });
   check('a code block is one dark block with its language and no inner box',
     md.codeBlocks === 1 && md.lang === 'python' && md.innerCodeBorder === '0px' && md.outerPre === 0, md);
   check('headings stay near body size, in the text color', md.h2Size && md.h2Size <= md.pSize * 1.25 && md.h2Color === md.pColor, md);
   check('tables scroll in a wrapper and fill their header row', !!md.thFill && md.thFill !== 'rgba(0, 0, 0, 0)', md);
-  check('only the latest reply has a footer', JSON.stringify(md.footers) === '[false,true]', md);
+  const firstReplyMenu = await openReplyMenu(page, 0);
+  await closeReplyMenu(page, 0);
+  const lastReplyMenu = await openReplyMenu(page);
+  await closeReplyMenu(page);
+  check('only the latest reply\'s menu offers Retry',
+    !firstReplyMenu.items.some((i) => i.includes('Retry')) && lastReplyMenu.items.some((i) => i.includes('Retry')), { firstReplyMenu, lastReplyMenu });
 
   const codeText = await page.evaluate(() => document.querySelectorAll('.message-assistant')[1].querySelector('.code-block code').innerText);
   await page.hover('.message-assistant:nth-of-type(1) .code-block, .code-block');
@@ -287,10 +318,10 @@ function noisePng(page) {
   check('the code block Copy button copies the code', copiedCode.trim() === codeText.trim(), { copiedCode: copiedCode.slice(0, 60) });
   await page.screenshot({ path: `${OUT}/ui-desktop-light.png` });
 
-  // Retry asks again for the latest question. The new reply sits under the old one from its first
-  // frame, takes the footer, and finishes with text. Each frame's reply order is recorded from the click.
+  // Retry (in the latest reply's menu) asks again for the latest question. The new reply sits under
+  // the old one from its first frame and finishes with text. Each frame's reply order is recorded.
   const replyRows = () => page.evaluate(() => Array.from(document.querySelectorAll('.message-assistant'))
-    .map((m) => ({ id: m.parentElement.id, footer: !!m.querySelector('.reply-footer') })));
+    .map((m) => ({ id: m.parentElement.id })));
   const userCount = () => page.evaluate(() => document.querySelectorAll('.message-user').length);
   const before = { user: await userCount(), replies: await replyRows() };
   const oldIds = before.replies.map((r) => r.id);
@@ -298,31 +329,25 @@ function noisePng(page) {
     window.__retryFrames = [];
     const start = performance.now();
     const tick = () => {
-      window.__retryFrames.push(Array.from(document.querySelectorAll('.message-assistant'))
-        .map((m) => [m.parentElement.id, !!m.querySelector('.reply-footer')]));
+      window.__retryFrames.push(Array.from(document.querySelectorAll('.message-assistant')).map((m) => m.parentElement.id));
       if (performance.now() - start < 4000) requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
   });
-  await page.locator('.reply-footer button', { hasText: 'Retry' }).click();
+  await chooseInReplyMenu(page, 'Retry');
   await page.waitForFunction((ids) => {
     const replies = Array.from(document.querySelectorAll('.message-assistant'));
     const last = replies[replies.length - 1];
-    return last && !ids.includes(last.parentElement.id) && last.querySelector('.reply-footer')
+    return last && !ids.includes(last.parentElement.id) && last.querySelector('.reply-menu')
       && !last.querySelector('.error-message') && (last.querySelector('.message-content')?.innerText || '').trim().length > 0;
   }, oldIds, { timeout: 180000 });
   const after = { user: await userCount(), replies: await replyRows() };
-  check('Retry adds a finished reply under the old one, which gives up the footer',
+  check('Retry in the ⋮ menu adds a finished reply under the old one',
     after.user === before.user && after.replies.length === oldIds.length + 1
-    && JSON.stringify(after.replies.slice(0, -1).map((r) => r.id)) === JSON.stringify(oldIds)
-    && after.replies.every((r, i) => r.footer === (i === after.replies.length - 1)), { before, after });
-  const misplaced = await page.evaluate((ids) => window.__retryFrames.filter((rows) => rows.some(([id, footer], i) => {
-    const isNew = !ids.includes(id);
-    const last = i === rows.length - 1;
-    return (isNew && !last) || (footer && !last) || (rows.some(([other]) => !ids.includes(other)) && !isNew && footer);
-  })), oldIds);
+    && JSON.stringify(after.replies.slice(0, -1).map((r) => r.id)) === JSON.stringify(oldIds), { before, after });
+  const misplaced = await page.evaluate((ids) => window.__retryFrames.filter((rows) => rows.some((id, i) => !ids.includes(id) && i !== rows.length - 1)), oldIds);
   const sampled = await page.evaluate(() => window.__retryFrames.length);
-  check("a retry's reply sits at the bottom from its first frame, and only it has the footer",
+  check("a retry's reply sits at the bottom from its first frame",
     misplaced.length === 0, { framesSampled: sampled, misplacedFrames: misplaced.length, firstMisplaced: misplaced[0] || null });
   const retried = await latestReply(page);
   await tryThinkingToggle(await savedReply(retried.chatId, retried.id));
@@ -337,7 +362,7 @@ function noisePng(page) {
   await page.click('.home-controls .theme-toggle');
   await page.addInitScript(recordFrames);
   await page.goto(chatUrl, { waitUntil: 'load' });
-  await page.waitForSelector('.message-assistant .reply-footer', { timeout: 30000 });
+  await page.waitForSelector('.message-assistant .reply-menu', { timeout: 30000 });
   await page.waitForTimeout(1500);
   const frames = await page.evaluate(() => window.__frames);
   const firstChat = frames.find((f) => f.chat) || null;
@@ -359,7 +384,7 @@ function noisePng(page) {
   const reopened = await page.evaluate(() => window.__frames.find((f) => f.chat) || null);
   check('reopening the chat shows its messages in the first frame, at the bottom',
     !!reopened && reopened.msgs >= 5 && reopened.gapToBottom !== null && reopened.gapToBottom <= 2, reopened);
-  await page.waitForSelector('.message-assistant .reply-footer', { timeout: 30000 });
+  await page.waitForSelector('.message-assistant .reply-menu', { timeout: 30000 });
   await page.hover('.message-assistant .message-bubble');
   await page.locator('.message-assistant .export-menu-button').first().click();
   const menuBg = await page.evaluate(() => getComputedStyle(document.querySelector('.export-menu-dropdown')).backgroundColor);
@@ -445,7 +470,7 @@ function noisePng(page) {
   await page.waitForTimeout(500);
   await page.screenshot({ path: `${OUT}/ui-phone-sidebar.png` });
   await page.locator('.chat-item', { hasText: chatTitle.slice(0, 20) }).first().click();
-  await page.waitForSelector('.message-assistant .reply-footer', { timeout: 30000 });
+  await page.waitForSelector('.message-assistant .reply-menu', { timeout: 30000 });
   await page.waitForTimeout(1000);
   const phone = await page.evaluate(() => ({
     title: document.querySelector('.mobile-header-title')?.textContent,

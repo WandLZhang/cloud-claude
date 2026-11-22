@@ -517,44 +517,6 @@ body {
 
 /* The latest reply's one-line footer: thinking, Copy, Retry, the model. Older replies keep these
    in their corner menu, so they take no extra height. */
-.reply-footer {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 2px;
-  margin-top: var(--unit-2);
-  font-size: 12px;
-  color: var(--on-surface-variant);
-}
-
-.reply-action {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 3px 8px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--on-surface-variant);
-  font-size: 12px;
-  font-family: var(--font);
-  cursor: pointer;
-}
-
-.reply-action:hover {
-  background: var(--surface-container);
-  color: var(--on-surface);
-}
-
-.reply-action .icon {
-  font-size: 15px;
-}
-
-.reply-model {
-  margin-left: auto;
-  padding: 3px 4px;
-}
-
 .reply-menu {
   position: absolute;
   top: calc(-1 * var(--unit-1));
@@ -718,11 +680,6 @@ body {
   .icon-button:hover::before {
     width: 0;
     height: 0;
-  }
-
-  .reply-action:hover {
-    background: transparent;
-    color: var(--on-surface-variant);
   }
 }
 
