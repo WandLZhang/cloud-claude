@@ -121,7 +121,6 @@ function SavedPrompts({ userId, onSelectPrompt, onSelectPromptFull }) {
 
   return (
     <div className="saved-prompts-container">
-      <h3 className="saved-prompts-title">Saved Prompts</h3>
       <div className="saved-prompts-controls">
         <div className="prompt-selector-wrapper">
           <select

@@ -2,8 +2,9 @@
 // instant send with a photo, the elapsed status, the latest reply's footer (thinking, Copy, Retry,
 // model), code blocks, headings, tables, Retry, the sidebar's top row and Ctrl+K, a cold load and a
 // reopen (no light frame, spinner or entrance animation; the chat whole and at the bottom),
-// dark-mode menus, then the phone header and layout. Three real Claude replies; screenshots go to
-// /tmp/cloud-claude-e2e/.
+// dark-mode menus, then the phone header, home and composer, including with the keyboard up.
+// Three real Claude replies; screenshots go to /tmp/cloud-claude-e2e/. A reply's footer is checked
+// against what Firestore saved: Claude's adaptive thinking skips some replies.
 //   NODE_PATH=$PWD/node_modules node test_scripts/test-ui.js
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
@@ -13,11 +14,46 @@ const OUT = '/tmp/cloud-claude-e2e';
 const session = JSON.parse(fs.readFileSync(`${OUT}/session.json`, 'utf8'));
 const MARKDOWN_PROMPT = 'Answer in markdown only: a level-2 heading "Greetings", one sentence, a 3-row table with columns '
   + 'Cantonese, Jyutping, English, and a 3-line Python code block that prints them.';
+const PROJECT = JSON.parse(fs.readFileSync(`${__dirname}/../.firebaserc`, 'utf8')).projects.default;
 const results = [];
+const skipped = [];
 const check = (name, ok, detail) => {
   results.push(ok);
   console.log(`${ok ? 'PASS' : 'FAIL'} ${name}: ${JSON.stringify(detail)}`);
 };
+// A check this run couldn't exercise; it counts as neither a pass nor a failure.
+const skip = (name, reason) => {
+  skipped.push(name);
+  console.log(`SKIP ${name}: ${reason}`);
+};
+
+// The reply as Firestore saved it, read with the test user's ID token.
+async function savedReply(chatId, messageId) {
+  const url = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/`
+    + `chats/${session.user.uid}/conversations/${chatId}/messages/${messageId}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.user.stsTokenManager.accessToken}` } });
+  if (!res.ok) throw new Error(`Firestore read of ${messageId} failed: ${res.status} ${await res.text()}`);
+  const doc = await res.json();
+  return {
+    thinkingChars: (doc.fields?.thinking?.stringValue || '').length,
+    thinkingSeconds: doc.fields?.thinkingSeconds?.doubleValue ?? doc.fields?.thinkingSeconds?.integerValue ?? null,
+  };
+}
+
+// The latest reply's id, its footer's buttons and model, and the open chat's id.
+function latestReply(page) {
+  return page.evaluate(() => {
+    const replies = document.querySelectorAll('.message-assistant');
+    const reply = replies[replies.length - 1];
+    const f = reply?.querySelector('.reply-footer');
+    return {
+      chatId: location.pathname.split('/').pop(),
+      id: (reply?.parentElement.id || '').slice('message-'.length),
+      buttons: f ? Array.from(f.querySelectorAll('button')).map((b) => b.textContent.replace(/\s+/g, ' ').trim()) : [],
+      model: f?.querySelector('.reply-model')?.textContent || null,
+    };
+  });
+}
 
 async function signedIn(browser, options) {
   const context = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'], ...options });
@@ -144,7 +180,7 @@ function noisePng(page) {
   const png = await noisePng(page);
   await page.setInputFiles('input[type="file"][accept*="pdf"]', { name: 'noise.png', mimeType: 'image/png', buffer: Buffer.from(png) });
   await page.waitForSelector('img[alt="Selected"]', { timeout: 15000 });
-  await page.fill('textarea.chat-input', 'Describe this image in one short sentence.');
+  await page.fill('textarea.chat-input', 'What could have made this image? Think it over, then answer in one short sentence.');
   const t0 = Date.now();
   await page.keyboard.press('Enter');
   await page.waitForSelector('.message-user img', { timeout: 10000 });
@@ -166,20 +202,23 @@ function noisePng(page) {
   check('the status line shows elapsed time', !!elapsedLine, { elapsedLine });
 
   await waitForLatestReply(page);
-  const footer = await page.evaluate(() => {
-    const f = document.querySelector('.message-assistant .reply-footer');
-    return f && {
-      buttons: Array.from(f.querySelectorAll('button')).map((b) => b.textContent.replace(/\s+/g, ' ').trim()),
-      model: f.querySelector('.reply-model')?.textContent || null,
-    };
-  });
-  check('the latest reply has a footer with thinking, Copy, Retry and the model',
-    !!footer && footer.buttons.some((b) => b.includes('Thought for')) && footer.buttons.some((b) => b.includes('Copy'))
-    && footer.buttons.some((b) => b.includes('Retry')) && !!footer.model, footer);
+  const photoReply = await latestReply(page);
+  const photoSaved = await savedReply(photoReply.chatId, photoReply.id);
+  check('the latest reply has a footer with Copy, Retry and the model, and "Thought for N s" exactly when it thought',
+    photoReply.buttons.some((b) => b.includes('Copy')) && photoReply.buttons.some((b) => b.includes('Retry')) && !!photoReply.model
+    && photoReply.buttons.some((b) => b.includes('Thought for')) === (photoSaved.thinkingChars > 0), { ...photoReply, saved: photoSaved });
 
-  await page.locator('.reply-footer button', { hasText: 'Thought for' }).click();
-  const thinking = await page.evaluate(() => document.querySelector('.thinking-text')?.innerText || '');
-  check('"Thought for N s" opens the thinking', thinking.length > 20, { chars: thinking.length });
+  // The thinking toggle is tested on the first of the three replies that thought.
+  let thinkingToggleTested = false;
+  const tryThinkingToggle = async (saved) => {
+    if (thinkingToggleTested || saved.thinkingChars === 0) return;
+    thinkingToggleTested = true;
+    await page.locator('.reply-footer button', { hasText: 'Thought for' }).click();
+    const shown = await page.evaluate(() => document.querySelector('.reply-footer')?.closest('.message-content')?.querySelector('.thinking-text')?.innerText || '');
+    check('"Thought for N s" opens the thinking', shown.length > 20, { shownChars: shown.length, saved });
+    await page.locator('.reply-footer button', { hasText: 'Hide thinking' }).click();
+  };
+  await tryThinkingToggle(photoSaved);
 
   await page.locator('.reply-footer button', { hasText: 'Copy' }).click();
   const copied = await page.evaluate(() => navigator.clipboard.readText());
@@ -195,6 +234,8 @@ function noisePng(page) {
     return replies.length === 2 && replies[1].querySelector('.reply-footer');
   }, null, { timeout: 180000 });
   await page.waitForTimeout(800);
+  const mdReply = await latestReply(page);
+  await tryThinkingToggle(await savedReply(mdReply.chatId, mdReply.id));
   const md = await page.evaluate(() => {
     const reply = document.querySelectorAll('.message-assistant')[1];
     const code = reply.querySelector('.code-block code');
@@ -264,6 +305,9 @@ function noisePng(page) {
   const sampled = await page.evaluate(() => window.__retryFrames.length);
   check("a retry's reply sits at the bottom from its first frame, and only it has the footer",
     misplaced.length === 0, { framesSampled: sampled, misplacedFrames: misplaced.length, firstMisplaced: misplaced[0] || null });
+  const retried = await latestReply(page);
+  await tryThinkingToggle(await savedReply(retried.chatId, retried.id));
+  if (!thinkingToggleTested) skip('"Thought for N s" opens the thinking', 'none of the three replies thought this run (Firestore saved no thinking)');
   const chatUrl = page.url();
   const chatTitle = await page.evaluate(() => document.querySelector('.chat-item.active h3')?.textContent || '');
 
@@ -323,7 +367,58 @@ function noisePng(page) {
     phoneComposer.toolRows === 2 && phoneComposer.toolCols === 2 && phoneComposer.textRoom >= phoneComposer.placeholderNeeds
     && Math.abs(phoneComposer.textBoxHeight - phoneComposer.toolsHeight) <= 2, phoneComposer);
   check('on a phone, Send sits level with the lower row of tools, mirroring their edge gap', sendAligned(phoneComposer), phoneComposer);
+
+  // Home: no subtitle or "Saved prompts" heading, one left edge for the picker, the recent chats and
+  // the composer, and a focused text box that draws no box of its own.
+  const homeLayout = await page.evaluate(() => {
+    const left = (sel) => { const el = document.querySelector(sel); return el ? Math.round(el.getBoundingClientRect().left) : null; };
+    return {
+      subtitle: !!document.querySelector('.home-subtitle'),
+      savedPromptsHeading: !!document.querySelector('.saved-prompts-title'),
+      edges: { picker: left('.prompt-selector'), recent: left('.recent-chat-card'), composer: left('.input-wrapper') },
+      viewport: document.querySelector('meta[name="viewport"]').getAttribute('content'),
+    };
+  });
+  check('home has no subtitle and no "Saved prompts" heading', !homeLayout.subtitle && !homeLayout.savedPromptsHeading, homeLayout);
+  const edges = Object.values(homeLayout.edges);
+  check('the prompt picker, the recent chats and the composer share one left edge',
+    edges.every((x) => x !== null) && Math.max(...edges) - Math.min(...edges) <= 1, homeLayout.edges);
+  check('the keyboard resizes the page instead of covering it', homeLayout.viewport.includes('interactive-widget=resizes-content'), homeLayout);
+  await page.tap('textarea.chat-input');
+  const focusedBox = await page.evaluate(() => {
+    const cs = getComputedStyle(document.querySelector('textarea.chat-input'));
+    return { focused: !!document.activeElement?.classList.contains('chat-input'), boxShadow: cs.boxShadow, background: cs.backgroundColor };
+  });
+  await page.evaluate(() => document.activeElement?.blur());
+  check('the focused text box draws no box of its own inside the composer',
+    focusedBox.focused && focusedBox.boxShadow === 'none' && focusedBox.background === 'rgba(0, 0, 0, 0)', focusedBox);
   await page.screenshot({ path: `${OUT}/ui-phone-home.png` });
+
+  // With the keyboard up the page is shorter (resizes-content): the header and composer stay on
+  // screen, and home scrolls from its title to its last recent chat.
+  await page.setViewportSize({ width: 390, height: 360 });
+  await page.waitForTimeout(400);
+  const keyboardHome = await page.evaluate(async () => {
+    const main = document.querySelector('.home-main-content');
+    const titleTop = Math.round(document.querySelector('.home-title').getBoundingClientRect().top - main.getBoundingClientRect().top);
+    main.scrollTop = main.scrollHeight;
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    const cards = document.querySelectorAll('.recent-chat-card');
+    return {
+      scrollable: main.scrollHeight > main.clientHeight,
+      titleTopAtScrollStart: titleTop,
+      lastRecentChatBottomGap: Math.round(main.getBoundingClientRect().bottom - cards[cards.length - 1].getBoundingClientRect().bottom),
+      headerTop: Math.round(document.querySelector('.mobile-header').getBoundingClientRect().top),
+      composerBottom: Math.round(document.querySelector('.input-wrapper').getBoundingClientRect().bottom),
+      viewportHeight: innerHeight,
+    };
+  });
+  await page.screenshot({ path: `${OUT}/ui-phone-home-keyboard.png` });
+  check('with the keyboard up, home keeps the header and composer on screen and scrolls from its title to its last recent chat',
+    keyboardHome.scrollable && keyboardHome.titleTopAtScrollStart >= 0 && keyboardHome.lastRecentChatBottomGap >= 0
+    && keyboardHome.headerTop === 0 && keyboardHome.composerBottom <= keyboardHome.viewportHeight, keyboardHome);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
 
   await page.click('.mobile-header button[aria-label="Open sidebar"]');
   await page.waitForTimeout(500);
@@ -344,6 +439,17 @@ function noisePng(page) {
     { ...phone, sidebarTitle: chatTitle });
   check('code tools show without hover on a touch screen', phone.codeToolsOpacity === '1', phone);
   check('the composer leaves the text at least 220 px on a phone', phone.textareaWidth >= 220, phone);
+
+  // With the keyboard up, the chat keeps its newest message in view above the composer.
+  await page.setViewportSize({ width: 390, height: 500 });
+  await page.waitForTimeout(500);
+  const keyboardChat = await page.evaluate(() => {
+    const mc = document.querySelector('.messages-container');
+    return { gapToBottom: Math.round(mc.scrollHeight - mc.scrollTop - mc.clientHeight), messagesHeight: mc.clientHeight };
+  });
+  check('with the keyboard up, the chat keeps its newest message in view', keyboardChat.gapToBottom <= 2, keyboardChat);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForTimeout(300);
   await page.click('.mobile-header button[aria-label="Star chat"]');
   await page.waitForSelector('.mobile-header button[aria-label="Unstar chat"]', { timeout: 10000 });
   const starAfterTap = await page.evaluate(() => {
@@ -364,7 +470,8 @@ function noisePng(page) {
 
   await browser.close();
   const failed = results.filter((ok) => !ok).length;
-  console.log(failed ? `${failed} of ${results.length} checks failed` : `all ${results.length} checks passed`);
+  const skipNote = skipped.length ? `; ${skipped.length} skipped` : '';
+  console.log((failed ? `${failed} of ${results.length} checks failed` : `all ${results.length} checks passed`) + skipNote);
   process.exit(failed ? 1 : 0);
 })().catch((err) => {
   console.error(err);

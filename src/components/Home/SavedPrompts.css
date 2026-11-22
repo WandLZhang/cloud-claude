@@ -1,16 +1,7 @@
 .saved-prompts-container {
   width: 100%;
-  max-width: 600px;
-  margin: 0 auto var(--unit-6) auto;
-}
-
-.saved-prompts-title {
-  font-size: 0.75rem;
-  font-weight: 600;
-  margin-bottom: var(--unit-3);
-  color: var(--on-surface-variant);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
+  max-width: 720px;
+  margin: 0 auto var(--unit-4) auto;
 }
 
 .saved-prompts-controls {

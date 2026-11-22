@@ -19,16 +19,17 @@ function MessageList({ messages, latestReplyId, onRetry, isThinking, loading, on
     containerRef.current.scrollTop = containerRef.current.scrollHeight;
   }, [loading, hasMessages, targetMessageId]);
 
-  // While the reader is at the bottom, content that grows later (a photo that loads, a font, a
-  // highlighted code block) keeps the bottom in view instead of pushing it out of sight.
+  // While the reader is at the bottom, the bottom stays in view when the content grows (a photo
+  // that loads, a font, a highlighted code block) and when the list shrinks (the keyboard opens).
   useEffect(() => {
     const inner = innerRef.current;
-    if (!inner || typeof ResizeObserver === 'undefined') return undefined;
+    const container = containerRef.current;
+    if (!inner || !container || typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(() => {
-      const el = containerRef.current;
-      if (el && atBottomRef.current && !targetMessageId) el.scrollTop = el.scrollHeight;
+      if (atBottomRef.current && !targetMessageId) container.scrollTop = container.scrollHeight;
     });
     observer.observe(inner);
+    observer.observe(container);
     return () => observer.disconnect();
   }, [loading, hasMessages, targetMessageId]);
 

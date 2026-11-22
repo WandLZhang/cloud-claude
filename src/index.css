@@ -196,17 +196,6 @@ body {
   max-width: 100%;
 }
 
-.input-container::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 20%;
-  right: 20%;
-  height: 1px;
-  background: var(--outline-variant);
-  opacity: 0.2;
-}
-
 .input-wrapper {
   flex: 1 1 0px;
   min-width: 0;
@@ -248,6 +237,12 @@ body {
   resize: none;
   outline: none;
   transition: all 0.2s ease;
+}
+
+/* material.css gives a focused textarea an indigo glow, which drew a box inside the composer; the
+   composer's own background shows focus. */
+.chat-input:focus {
+  box-shadow: none;
 }
 
 .chat-input::placeholder {

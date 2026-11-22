@@ -91,9 +91,6 @@ function HomePage({ user, onThemeToggle, theme, onSendFromHome, userChats, onSel
           chat
         </span>
         <h1 className="home-title">Start a conversation</h1>
-        <p className="home-subtitle text-muted">
-          Ask me anything! I can help with analysis, writing, coding, and more.
-        </p>
 
         {/* Saved prompts section */}
         <SavedPrompts 

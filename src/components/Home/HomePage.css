@@ -23,14 +23,25 @@
   z-index: 10;
 }
 
+/* Home scrolls. The auto margins center the content while it fits; once it's taller than the
+   space (a long list, or the keyboard up), it starts at the top instead of being cut off at both
+   ends. The 16 px padding matches the composer's, so everything shares one left edge. */
 .home-main-content {
   flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   padding: var(--unit-4);
-  padding-bottom: var(--unit-8);
+}
+
+.home-main-content > :first-child {
+  margin-top: auto;
+}
+
+.home-main-content > :last-child {
+  margin-bottom: auto;
 }
 
 .home-title {
@@ -38,15 +49,7 @@
   font-weight: 500;
   color: var(--on-surface);
   text-align: center;
-  margin-bottom: var(--unit-2);
-}
-
-.home-subtitle {
-  font-size: 0.875rem;
-  color: var(--on-surface-variant);
-  text-align: center;
-  max-width: 500px;
-  margin: 0 auto var(--unit-6) auto;
+  margin-bottom: var(--unit-4);
 }
 
 .home-error {
@@ -73,25 +76,16 @@
     position: relative;
   }
   
-  .home-title {
-    font-size: 1.5rem;
-  }
-  
   /* The phone header carries the theme toggle and avatar. */
   .home-controls {
     display: none;
-  }
-  
-  .home-main-content {
-    padding: var(--unit-3);
   }
 }
 
 /* Recent chats section */
 .recent-chats-section {
-  margin-top: var(--unit-4);
   width: 100%;
-  max-width: 800px;
+  max-width: 720px;
 }
 
 @keyframes fadeIn {
@@ -108,64 +102,32 @@
 .recent-chats-title {
   font-size: 0.75rem;
   font-weight: 600;
-  margin-bottom: var(--unit-3);
+  margin-bottom: var(--unit-2);
   color: var(--on-surface-variant);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
 
+/* Recent chats: flat rows with the title over the last message, like the sidebar's. */
 .recent-chats-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--unit-3);
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
 }
 
 .recent-chat-card {
-  padding: var(--unit-4);
+  min-width: 0;
+  padding: 10px 12px;
   background: var(--surface-container-low);
   border: none;
-  border-radius: var(--unit-2);
+  border-radius: var(--radius);
   text-align: left;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05), 
-              0 1px 2px rgba(0, 0, 0, 0.1);
-  position: relative;
-  overflow: hidden;
-}
-
-.recent-chat-card::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--primary);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-  pointer-events: none;
+  transition: background-color 0.15s ease;
 }
 
 .recent-chat-card:hover {
   background: var(--surface-container);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08), 
-              0 2px 6px rgba(0, 0, 0, 0.12);
-}
-
-.recent-chat-card:hover::before {
-  opacity: 0.04;
-}
-
-.dark .recent-chat-card {
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2), 
-              0 1px 2px rgba(0, 0, 0, 0.3);
-}
-
-.dark .recent-chat-card:hover {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3), 
-              0 2px 6px rgba(0, 0, 0, 0.4);
 }
 
 .recent-chat-card h4 {
