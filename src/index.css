@@ -183,64 +183,76 @@ body {
 }
 
 /* Input area styles */
-/* No band above the composer and no background around it: the messages or the home list run right
-   down to its top edge, as in CloudCLI. */
+/* The composer is one card, as in CloudCLI: no band above it and no background around it, so the
+   messages or the home list run right down to its top edge. Its side margins match the text
+   column's (8 px on a phone, 16 px wider), so no empty strip shows beside it. */
 .input-container {
   padding: 0 var(--unit-4) var(--unit-4);
   background: none;
   display: flex;
-  gap: var(--unit-2);
   align-items: flex-end;
   position: relative;
   overflow: hidden;
   max-width: 100%;
 }
 
+@media (max-width: 768px) {
+  .input-container {
+    padding: 0 var(--unit-2) var(--unit-2);
+  }
+}
+
 .input-wrapper {
   flex: 1 1 0px;
   min-width: 0;
-  max-width: calc(100vw - 2 * var(--unit-4));
   overflow: hidden;
   position: relative;
-  background: var(--surface-container-low);
-  border-radius: calc(var(--unit-6) + 4px);
-  padding: var(--unit-1);
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  background: var(--surface-container-lowest);
+  border: 1px solid var(--outline-variant);
+  border-radius: 18px;
+  padding: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s ease;
 }
 
 .input-wrapper:focus-within {
-  background: var(--surface-container);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  border-color: var(--outline);
 }
 
 .dark .input-wrapper {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  background: var(--surface-container-low);
 }
 
-.dark .input-wrapper:focus-within {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+/* Attachments and the batch queue, above the text */
+.composer-extras {
+  padding: var(--unit-2) 10px 0;
 }
 
+.composer-extras:empty {
+  display: none;
+}
+
+/* The text gets the card's full width on its own line */
 .chat-input {
+  display: block;
   width: 100%;
   min-width: 0;
-  max-height: 120px;
-  min-height: 48px;
-  padding: var(--unit-3) var(--unit-4);
+  max-height: 160px;
+  min-height: 36px;
+  padding: 12px 14px 4px;
   border: none;
-  border-radius: var(--unit-6);
+  border-radius: 0;
   background-color: transparent;
   color: var(--on-surface);
   font-family: var(--font);
   font-size: 0.875rem;
+  line-height: 20px;
   resize: none;
   outline: none;
-  transition: all 0.2s ease;
 }
 
 /* material.css gives a focused textarea an indigo glow, which drew a box inside the composer; the
-   composer's own background shows focus. */
+   card's border shows focus. */
 .chat-input:focus {
   box-shadow: none;
 }
@@ -749,38 +761,30 @@ body {
   height: 30px;
 }
 
-/* Composer: the tools, the text and Send in one row. */
+/* The row under the text: small tools on the left, Send at the right end, both 6 px from the
+   card's edges. */
+.composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 6px 6px;
+}
+
 .composer-tools {
   display: flex;
   align-items: center;
   flex-shrink: 0;
 }
 
-/* Phones: the four tools stack two by two, and the text gets the width they used. In one row
-   at 120% page zoom, "Message Claude..." had 89 px and wrapped. The text box matches the
-   two rows' height, and its first line sits level with the top row. */
-@media (max-width: 768px) {
-  .composer-tools {
-    display: grid;
-    grid-template-columns: repeat(2, 34px);
-    grid-auto-rows: 34px;
-  }
-
-  .chat-input {
-    min-height: 68px;
-    padding: 7px 8px;
-    line-height: 20px;
-  }
-}
-
 .icon-button.composer-tool {
-  width: 34px;
-  height: 34px;
-  padding: 5px;
+  width: 32px;
+  height: 32px;
+  padding: 6px;
+  border-radius: 8px;
 }
 
 .icon-button.composer-tool .icon {
-  font-size: 20px;
+  font-size: 18px;
 }
 
 .icon-button.composer-tool.active {
@@ -793,9 +797,9 @@ body {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  margin: 0;   /* 4 px from the composer's right and bottom edges, as the tools are from its left and bottom */
+  width: 32px;
+  height: 32px;
+  margin: 0;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -819,5 +823,5 @@ body {
 }
 
 .send-button .icon {
-  font-size: 20px;
+  font-size: 18px;
 }

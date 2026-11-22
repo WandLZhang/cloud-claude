@@ -25,7 +25,7 @@
 
 /* Home scrolls. The auto margins center the content while it fits; once it's taller than the
    space (a long list, or the keyboard up), it starts at the top instead of being cut off at both
-   ends. The 16 px padding matches the composer's, so everything shares one left edge. */
+   ends. The side padding matches the composer card's margins, so everything shares one left edge. */
 .home-main-content {
   flex: 1;
   min-height: 0;
@@ -77,6 +77,11 @@
   /* The phone header carries the theme toggle and avatar. */
   .home-controls {
     display: none;
+  }
+
+  /* 8 px from the edge, as the messages and the composer card are */
+  .home-main-content {
+    padding: var(--unit-4) var(--unit-2);
   }
 }
 

@@ -140,8 +140,8 @@ function composerLayout(page) {
       textBox: Math.round(box.width),
       textRoom: Math.round(ta.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)),
       placeholderNeeds: Math.ceil(ctx.measureText(ta.placeholder).width),
-      textBoxHeight: Math.round(box.height),
-      toolsHeight: Math.round(document.querySelector('.composer-tools').getBoundingClientRect().height),
+      textSpansCard: Math.round(box.left - wrapper.left) <= 2 && Math.round(wrapper.right - box.right) <= 2,
+      toolsBelowText: Math.round(Math.min(...tools.map((r) => r.top)) - box.bottom) >= -1,
     };
   });
 }
@@ -167,6 +167,9 @@ const surroundClear = (s) => Math.abs(s.contentToComposerGap) <= 1
 
 // Send sits level with the lower row of tools, as far from the right edge as the tools are from the left.
 const sendAligned = (c) => Math.abs(c.sendOffset) <= 1.5 && Math.abs(c.sendRightGap - c.toolsLeftGap) <= 1;
+// The composer card: the text on its own full-width line, the four tools in one row under it, Send
+// at that row's right end.
+const cardLayout = (c) => c.toolRows === 1 && c.toolCols === 4 && c.textSpansCard && c.toolsBelowText && sendAligned(c);
 
 // Wait until the last reply has finished: its ⋮ menu appears only then.
 async function waitForLatestReply(page, timeoutMs = 180000) {
@@ -210,7 +213,7 @@ function noisePng(page) {
   await page.keyboard.press('Control+K');
   check('Ctrl+K focuses search', await page.evaluate(() => document.activeElement?.classList.contains('search-input')), {});
   const deskComposer = await composerLayout(page);
-  check('the desktop composer keeps its tools in one row, with Send level with them', deskComposer.toolRows === 1 && deskComposer.toolCols === 4 && sendAligned(deskComposer), deskComposer);
+  check('the composer puts the text on its own full-width line, with the tools and Send in one row under it', cardLayout(deskComposer), deskComposer);
   await page.keyboard.press('Escape');
   await page.click('textarea.chat-input');
 
@@ -407,10 +410,8 @@ function noisePng(page) {
   });
   check('the phone header shows on home with the app name and theme toggle', home.headerShown && home.title === 'Cloud Claude' && home.themeInHeader && !home.floatingToggle, home);
   const phoneComposer = await composerLayout(page);
-  check('the phone composer stacks its tools two by two, and the text box fills their height with its placeholder on one line',
-    phoneComposer.toolRows === 2 && phoneComposer.toolCols === 2 && phoneComposer.textRoom >= phoneComposer.placeholderNeeds
-    && Math.abs(phoneComposer.textBoxHeight - phoneComposer.toolsHeight) <= 2, phoneComposer);
-  check('on a phone, Send sits level with the lower row of tools, mirroring their edge gap', sendAligned(phoneComposer), phoneComposer);
+  check('on a phone the composer has the same layout, with its placeholder on one line',
+    cardLayout(phoneComposer) && phoneComposer.textRoom >= phoneComposer.placeholderNeeds, phoneComposer);
 
   // Home: no subtitle or "Saved prompts" heading, one left edge for the picker, the recent chats and
   // the composer, and a focused text box that draws no box of its own.
@@ -484,9 +485,21 @@ function noisePng(page) {
     !!phone.title && phone.title.startsWith(sidebarStem) && phone.actions.includes('New chat') && phone.actions.some((a) => a.includes('tar chat')),
     { ...phone, sidebarTitle: chatTitle });
   check('code tools show without hover on a touch screen', phone.codeToolsOpacity === '1', phone);
-  check('the composer leaves the text at least 220 px on a phone', phone.textareaWidth >= 220, phone);
+  check('the composer leaves the text at least 300 px on a phone', phone.textareaWidth >= 300, phone);
   const chatSurround = await composerSurround(page, '.messages-container');
   check('a chat runs down to the composer, with no band or background around it', surroundClear(chatSurround), chatSurround);
+  const chatEdges = await page.evaluate(() => {
+    const mc = document.querySelector('.messages-container');
+    const cs = getComputedStyle(mc);
+    const r = mc.getBoundingClientRect();
+    const card = document.querySelector('.input-wrapper').getBoundingClientRect();
+    return {
+      textColumn: { left: Math.round(r.left + parseFloat(cs.paddingLeft)), right: Math.round(r.right - parseFloat(cs.paddingRight)) },
+      composer: { left: Math.round(card.left), right: Math.round(card.right) },
+    };
+  });
+  check('the composer is as wide as the text above it, so no empty strip shows beside it',
+    chatEdges.composer.left <= chatEdges.textColumn.left + 1 && chatEdges.composer.right >= chatEdges.textColumn.right - 1, chatEdges);
 
   // With the keyboard up, the chat keeps its newest message in view above the composer.
   await page.setViewportSize({ width: 390, height: 500 });
@@ -512,7 +525,7 @@ function noisePng(page) {
   // A 411 px phone in Chrome at 120% page zoom lays the page out 343 px wide.
   ({ context, page } = await signedIn(browser, { viewport: { width: 343, height: 760 }, isMobile: true, hasTouch: true, deviceScaleFactor: 2 }));
   const zoomedComposer = await composerLayout(page);
-  check('at 120% zoom the placeholder still fits on one line', zoomedComposer.toolRows === 2 && zoomedComposer.textRoom >= zoomedComposer.placeholderNeeds, zoomedComposer);
+  check('at 120% zoom the composer keeps its layout and the placeholder fits on one line', cardLayout(zoomedComposer) && zoomedComposer.textRoom >= zoomedComposer.placeholderNeeds, zoomedComposer);
   await page.screenshot({ path: `${OUT}/ui-phone-zoomed-home.png` });
   await context.close();
 

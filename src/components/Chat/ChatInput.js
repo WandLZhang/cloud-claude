@@ -368,277 +368,206 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
   return (
     <div className="input-container">
       <form onSubmit={handleSubmit} className="input-wrapper">
-        {selectedImage && (
-          <div style={{
-            position: 'relative',
-            marginBottom: 'var(--unit-2)',
-            display: 'inline-block'
-          }}>
-            <img
-              src={selectedImage.url}
-              alt="Selected"
-              style={{
-                maxHeight: '100px',
-                borderRadius: 'var(--unit-2)',
-                border: '1px solid var(--outline-variant)'
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => setSelectedImage(null)}
-              className="icon-button"
-              style={{
-                position: 'absolute',
-                top: '-8px',
-                right: '-8px',
-                backgroundColor: 'var(--surface)',
-                border: '1px solid var(--outline-variant)',
-                width: '24px',
-                height: '24px',
-                padding: 0
-              }}
-            >
-              <span className="icon" style={{ fontSize: '16px' }}>close</span>
-            </button>
-          </div>
-        )}
-
-        {selectedDocument && (
-          <div style={{
-            position: 'relative',
-            marginBottom: 'var(--unit-2)',
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 'var(--unit-2)',
-            padding: 'var(--unit-2) var(--unit-3)',
-            borderRadius: 'var(--unit-2)',
-            border: '1px solid var(--outline-variant)',
-            backgroundColor: 'var(--surface-container-low)'
-          }}>
-            <span className="icon" style={{ fontSize: '20px', color: 'var(--primary)' }}>description</span>
-            <span style={{ fontSize: '14px', color: 'var(--on-surface)' }}>{selectedDocument.name}</span>
-            <button
-              type="button"
-              onClick={() => setSelectedDocument(null)}
-              className="icon-button"
-              style={{
-                width: '24px',
-                height: '24px',
-                padding: 0,
-                marginLeft: 'var(--unit-1)'
-              }}
-            >
-              <span className="icon" style={{ fontSize: '16px' }}>close</span>
-            </button>
-          </div>
-        )}
-
-        {batchMode && batchQueue.length === 0 && (
-          <div style={{
-            marginBottom: 'var(--unit-2)',
-            padding: 'var(--unit-2) var(--unit-3)',
-            borderRadius: 'var(--unit-2)',
-            backgroundColor: 'var(--primary-container)',
-            color: 'var(--on-primary-container)',
-            fontSize: '13px',
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--unit-2)'
-          }}>
-            <span className="icon" style={{ fontSize: '18px' }}>playlist_add</span>
-            <span>Batch mode — messages queue here. Tap the batch button again to release them all.</span>
-          </div>
-        )}
-
-        {batchQueue.length > 0 && (
-          <div style={{
-            marginBottom: 'var(--unit-1)',
-            padding: 'var(--unit-1) var(--unit-2)',
-            borderRadius: 'var(--unit-2)',
-            backgroundColor: 'var(--surface-container-low)',
-            border: '1px solid var(--outline-variant)',
-            maxHeight: '100px',
-            overflowY: 'auto',
-            width: '100%',
-            boxSizing: 'border-box',
-          }}>
+        {/* Attachments and the batch queue sit above the text */}
+        <div className="composer-extras">
+          {selectedImage && (
             <div style={{
-              fontSize: '11px',
-              color: 'var(--on-surface-variant)',
-              marginBottom: 'var(--unit-1)',
+              position: 'relative',
+              marginBottom: 'var(--unit-2)',
+              display: 'inline-block'
+            }}>
+              <img
+                src={selectedImage.url}
+                alt="Selected"
+                style={{
+                  maxHeight: '100px',
+                  borderRadius: 'var(--unit-2)',
+                  border: '1px solid var(--outline-variant)'
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => setSelectedImage(null)}
+                className="icon-button"
+                style={{
+                  position: 'absolute',
+                  top: '-8px',
+                  right: '-8px',
+                  backgroundColor: 'var(--surface)',
+                  border: '1px solid var(--outline-variant)',
+                  width: '24px',
+                  height: '24px',
+                  padding: 0
+                }}
+              >
+                <span className="icon" style={{ fontSize: '16px' }}>close</span>
+              </button>
+            </div>
+          )}
+
+          {selectedDocument && (
+            <div style={{
+              position: 'relative',
+              marginBottom: 'var(--unit-2)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 'var(--unit-2)',
+              padding: 'var(--unit-2) var(--unit-3)',
+              borderRadius: 'var(--unit-2)',
+              border: '1px solid var(--outline-variant)',
+              backgroundColor: 'var(--surface-container-low)'
+            }}>
+              <span className="icon" style={{ fontSize: '20px', color: 'var(--primary)' }}>description</span>
+              <span style={{ fontSize: '14px', color: 'var(--on-surface)' }}>{selectedDocument.name}</span>
+              <button
+                type="button"
+                onClick={() => setSelectedDocument(null)}
+                className="icon-button"
+                style={{
+                  width: '24px',
+                  height: '24px',
+                  padding: 0,
+                  marginLeft: 'var(--unit-1)'
+                }}
+              >
+                <span className="icon" style={{ fontSize: '16px' }}>close</span>
+              </button>
+            </div>
+          )}
+
+          {batchMode && batchQueue.length === 0 && (
+            <div style={{
+              marginBottom: 'var(--unit-2)',
+              padding: 'var(--unit-2) var(--unit-3)',
+              borderRadius: 'var(--unit-2)',
+              backgroundColor: 'var(--primary-container)',
+              color: 'var(--on-primary-container)',
+              fontSize: '13px',
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between'
+              gap: 'var(--unit-2)'
             }}>
-              <span>{batchQueue.length} queued</span>
-              <span style={{ fontStyle: 'italic' }}>Tap batch to release</span>
+              <span className="icon" style={{ fontSize: '18px' }}>playlist_add</span>
+              <span>Batch mode — messages queue here. Tap the batch button again to release them all.</span>
             </div>
+          )}
+
+          {batchQueue.length > 0 && (
             <div style={{
-              display: 'flex',
-              gap: 'var(--unit-1)',
-              overflowX: 'auto',
-              paddingBottom: '2px'
+              marginBottom: 'var(--unit-1)',
+              padding: 'var(--unit-1) var(--unit-2)',
+              borderRadius: 'var(--unit-2)',
+              backgroundColor: 'var(--surface-container-low)',
+              border: '1px solid var(--outline-variant)',
+              maxHeight: '100px',
+              overflowY: 'auto',
+              width: '100%',
+              boxSizing: 'border-box',
             }}>
-              {batchQueue.map((item, idx) => (
-                <div key={item.id} style={{
-                  position: 'relative',
-                  flexShrink: 0,
-                  width: '56px',
-                  height: '56px',
-                  borderRadius: 'var(--unit-2)',
-                  border: '1px solid var(--outline-variant)',
-                  backgroundColor: 'var(--surface)',
-                  overflow: 'hidden',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  padding: 'var(--unit-1)'
-                }}>
-                  {item.image ? (
-                    <img
-                      src={item.image.url}
-                      alt={`Queue ${idx + 1}`}
-                      style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                    />
-                  ) : item.extraOptions?.document ? (
-                    <>
-                      <span className="icon" style={{ fontSize: '22px', color: 'var(--primary)' }}>description</span>
-                      <span style={{ fontSize: '9px', color: 'var(--on-surface-variant)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '50px' }}>
-                        {item.extraOptions.document.name}
+              <div style={{
+                fontSize: '11px',
+                color: 'var(--on-surface-variant)',
+                marginBottom: 'var(--unit-1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}>
+                <span>{batchQueue.length} queued</span>
+                <span style={{ fontStyle: 'italic' }}>Tap batch to release</span>
+              </div>
+              <div style={{
+                display: 'flex',
+                gap: 'var(--unit-1)',
+                overflowX: 'auto',
+                paddingBottom: '2px'
+              }}>
+                {batchQueue.map((item, idx) => (
+                  <div key={item.id} style={{
+                    position: 'relative',
+                    flexShrink: 0,
+                    width: '56px',
+                    height: '56px',
+                    borderRadius: 'var(--unit-2)',
+                    border: '1px solid var(--outline-variant)',
+                    backgroundColor: 'var(--surface)',
+                    overflow: 'hidden',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: 'var(--unit-1)'
+                  }}>
+                    {item.image ? (
+                      <img
+                        src={item.image.url}
+                        alt={`Queue ${idx + 1}`}
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                      />
+                    ) : item.extraOptions?.document ? (
+                      <>
+                        <span className="icon" style={{ fontSize: '22px', color: 'var(--primary)' }}>description</span>
+                        <span style={{ fontSize: '9px', color: 'var(--on-surface-variant)', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '50px' }}>
+                          {item.extraOptions.document.name}
+                        </span>
+                      </>
+                    ) : (
+                      <span style={{
+                        fontSize: '9px',
+                        color: 'var(--on-surface)',
+                        textAlign: 'center',
+                        overflow: 'hidden',
+                        display: '-webkit-box',
+                        WebkitLineClamp: 4,
+                        WebkitBoxOrient: 'vertical',
+                        lineHeight: 1.2
+                      }}>
+                        {item.content || '(empty)'}
                       </span>
-                    </>
-                  ) : (
-                    <span style={{
-                      fontSize: '9px',
-                      color: 'var(--on-surface)',
-                      textAlign: 'center',
-                      overflow: 'hidden',
-                      display: '-webkit-box',
-                      WebkitLineClamp: 4,
-                      WebkitBoxOrient: 'vertical',
-                      lineHeight: 1.2
-                    }}>
-                      {item.content || '(empty)'}
-                    </span>
-                  )}
-                  <div style={{
-                    position: 'absolute',
-                    top: '2px',
-                    left: '2px',
-                    backgroundColor: 'var(--scrim)',
-                    color: 'var(--inverse-on-surface)',
-                    fontSize: '10px',
-                    fontWeight: 600,
-                    padding: '1px 4px',
-                    borderRadius: '4px',
-                    lineHeight: 1
-                  }}>{idx + 1}</div>
-                  <button
-                    type="button"
-                    onClick={() => removeFromQueue(item.id)}
-                    className="icon-button"
-                    style={{
+                    )}
+                    <div style={{
                       position: 'absolute',
-                      top: '-6px',
-                      right: '-6px',
-                      width: '20px',
-                      height: '20px',
-                      padding: 0,
-                      backgroundColor: 'var(--surface)',
-                      border: '1px solid var(--outline-variant)'
-                    }}
-                    aria-label={`Remove queue item ${idx + 1}`}
-                  >
-                    <span className="icon" style={{ fontSize: '14px' }}>close</span>
-                  </button>
-                </div>
-              ))}
+                      top: '2px',
+                      left: '2px',
+                      backgroundColor: 'var(--scrim)',
+                      color: 'var(--inverse-on-surface)',
+                      fontSize: '10px',
+                      fontWeight: 600,
+                      padding: '1px 4px',
+                      borderRadius: '4px',
+                      lineHeight: 1
+                    }}>{idx + 1}</div>
+                    <button
+                      type="button"
+                      onClick={() => removeFromQueue(item.id)}
+                      className="icon-button"
+                      style={{
+                        position: 'absolute',
+                        top: '-6px',
+                        right: '-6px',
+                        width: '20px',
+                        height: '20px',
+                        padding: 0,
+                        backgroundColor: 'var(--surface)',
+                        border: '1px solid var(--outline-variant)'
+                      }}
+                      aria-label={`Remove queue item ${idx + 1}`}
+                    >
+                      <span className="icon" style={{ fontSize: '14px' }}>close</span>
+                    </button>
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        )}
-        
+          )}
+        </div>
+
         <div
-          className="flex gap-1 items-end"
+          className="composer-box"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          style={{
-            border: 'none',
-            borderRadius: 'var(--unit-6)',
-            padding: isDragging ? 'var(--unit-2)' : 0,
-            backgroundColor: isDragging ? 'var(--primary-container)' : 'transparent',
-            boxShadow: isDragging ? '0 0 0 2px var(--primary)' : 'none',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-          }}
+          style={isDragging ? { backgroundColor: 'var(--primary-container)', boxShadow: 'inset 0 0 0 2px var(--primary)' } : undefined}
         >
-          <div className="composer-tools">
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={disabled}
-            className="icon-button composer-tool"
-            aria-label="Attach file"
-          >
-            <span className="icon">attach_file</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleCameraCapture}
-            disabled={disabled}
-            className="icon-button composer-tool"
-            aria-label="Take photo"
-          >
-            <span className="icon">photo_camera</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-            disabled={disabled}
-            className={`icon-button composer-tool${webSearchEnabled ? ' active' : ''}`}
-            aria-label="Toggle web search"
-            aria-pressed={webSearchEnabled}
-            title={webSearchEnabled ? 'Web search ON' : 'Web search OFF'}
-          >
-            <span className="icon">travel_explore</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={handleBatchToggle}
-            disabled={disabled}
-            className={`icon-button composer-tool${batchMode ? ' active' : ''}`}
-            aria-label="Toggle batch mode"
-            aria-pressed={batchMode}
-            title={batchMode ? (batchQueue.length > 0 ? `Release ${batchQueue.length} queued` : 'Batch mode ON — click to exit') : 'Batch mode OFF'}
-            style={{ overflow: 'visible' }}
-          >
-            <span className="icon">playlist_add</span>
-            {batchQueue.length > 0 && (
-              <span style={{
-                position: 'absolute',
-                top: '-4px',
-                right: '-4px',
-                minWidth: '18px',
-                height: '18px',
-                borderRadius: '9px',
-                backgroundColor: 'var(--primary)',
-                color: 'var(--on-primary)',
-                fontSize: '11px',
-                fontWeight: 600,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                padding: '0 5px',
-                lineHeight: 1,
-                pointerEvents: 'none'
-              }}>{batchQueue.length}</span>
-            )}
-          </button>
-          </div>
-
           <input
             ref={fileInputRef}
             type="file"
@@ -667,16 +596,85 @@ function ChatInput({ onSendMessage, onBatchRelease, disabled, placeholder = "Typ
             className="chat-input"
             rows="1"
           />
-          
-          <button
-            type="submit"
-            disabled={disabled || (!message.trim() && !selectedImage && !selectedDocument)}
-            className="send-button"
-            aria-label={batchMode ? "Add to batch" : "Send message"}
-            title={batchMode ? "Add to batch queue" : "Send message"}
-          >
-            <span className="icon">{batchMode ? 'add' : 'arrow_upward'}</span>
-          </button>
+
+          {/* One row under the text: small tools on the left, Send at the right end */}
+          <div className="composer-bar">
+            <div className="composer-tools">
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={disabled}
+              className="icon-button composer-tool"
+              aria-label="Attach file"
+            >
+              <span className="icon">attach_file</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleCameraCapture}
+              disabled={disabled}
+              className="icon-button composer-tool"
+              aria-label="Take photo"
+            >
+              <span className="icon">photo_camera</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setWebSearchEnabled(!webSearchEnabled)}
+              disabled={disabled}
+              className={`icon-button composer-tool${webSearchEnabled ? ' active' : ''}`}
+              aria-label="Toggle web search"
+              aria-pressed={webSearchEnabled}
+              title={webSearchEnabled ? 'Web search ON' : 'Web search OFF'}
+            >
+              <span className="icon">travel_explore</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleBatchToggle}
+              disabled={disabled}
+              className={`icon-button composer-tool${batchMode ? ' active' : ''}`}
+              aria-label="Toggle batch mode"
+              aria-pressed={batchMode}
+              title={batchMode ? (batchQueue.length > 0 ? `Release ${batchQueue.length} queued` : 'Batch mode ON — click to exit') : 'Batch mode OFF'}
+              style={{ overflow: 'visible' }}
+            >
+              <span className="icon">playlist_add</span>
+              {batchQueue.length > 0 && (
+                <span style={{
+                  position: 'absolute',
+                  top: '-4px',
+                  right: '-4px',
+                  minWidth: '18px',
+                  height: '18px',
+                  borderRadius: '9px',
+                  backgroundColor: 'var(--primary)',
+                  color: 'var(--on-primary)',
+                  fontSize: '11px',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '0 5px',
+                  lineHeight: 1,
+                  pointerEvents: 'none'
+                }}>{batchQueue.length}</span>
+              )}
+            </button>
+            </div>
+            <button
+              type="submit"
+              disabled={disabled || (!message.trim() && !selectedImage && !selectedDocument)}
+              className="send-button"
+              aria-label={batchMode ? "Add to batch" : "Send message"}
+              title={batchMode ? "Add to batch queue" : "Send message"}
+            >
+              <span className="icon">{batchMode ? 'add' : 'arrow_upward'}</span>
+            </button>
+          </div>
         </div>
       </form>
     </div>
