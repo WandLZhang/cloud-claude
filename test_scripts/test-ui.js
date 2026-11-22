@@ -129,6 +129,25 @@ function composerLayout(page) {
   });
 }
 
+// The content above (home, or a chat's messages) runs down to the composer's top edge, and nothing
+// around the composer has a background, as in CloudCLI.
+function composerSurround(page, contentSelector) {
+  return page.evaluate((sel) => {
+    const content = document.querySelector(sel).getBoundingClientRect();
+    const pill = document.querySelector('.input-wrapper').getBoundingClientRect();
+    const bg = (s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const cs = getComputedStyle(el);
+      return { color: cs.backgroundColor, image: cs.backgroundImage };
+    };
+    return { contentToComposerGap: Math.round(pill.top - content.bottom), container: bg('.input-container'), homeArea: bg('.home-input-area') };
+  }, contentSelector);
+}
+const surroundClear = (s) => Math.abs(s.contentToComposerGap) <= 1
+  && s.container.image === 'none' && s.container.color === 'rgba(0, 0, 0, 0)'
+  && (!s.homeArea || (s.homeArea.image === 'none' && s.homeArea.color === 'rgba(0, 0, 0, 0)'));
+
 // Send sits level with the lower row of tools, as far from the right edge as the tools are from the left.
 const sendAligned = (c) => Math.abs(c.sendOffset) <= 1.5 && Math.abs(c.sendRightGap - c.toolsLeftGap) <= 1;
 
@@ -381,6 +400,8 @@ function noisePng(page) {
   });
   check('home has no subtitle and no "Saved prompts" heading', !homeLayout.subtitle && !homeLayout.savedPromptsHeading, homeLayout);
   const edges = Object.values(homeLayout.edges);
+  const homeSurround = await composerSurround(page, '.home-main-content');
+  check('home runs down to the composer, with no band or background around it', surroundClear(homeSurround), homeSurround);
   check('the prompt picker, the recent chats and the composer share one left edge',
     edges.every((x) => x !== null) && Math.max(...edges) - Math.min(...edges) <= 1, homeLayout.edges);
   check('the keyboard resizes the page instead of covering it', homeLayout.viewport.includes('interactive-widget=resizes-content'), homeLayout);
@@ -439,6 +460,8 @@ function noisePng(page) {
     { ...phone, sidebarTitle: chatTitle });
   check('code tools show without hover on a touch screen', phone.codeToolsOpacity === '1', phone);
   check('the composer leaves the text at least 220 px on a phone', phone.textareaWidth >= 220, phone);
+  const chatSurround = await composerSurround(page, '.messages-container');
+  check('a chat runs down to the composer, with no band or background around it', surroundClear(chatSurround), chatSurround);
 
   // With the keyboard up, the chat keeps its newest message in view above the composer.
   await page.setViewportSize({ width: 390, height: 500 });

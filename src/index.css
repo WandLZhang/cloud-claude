@@ -183,11 +183,11 @@ body {
 }
 
 /* Input area styles */
+/* No band above the composer and no background around it: the messages or the home list run right
+   down to its top edge, as in CloudCLI. */
 .input-container {
-  padding: var(--unit-4) var(--unit-4) var(--unit-4);
-  background: linear-gradient(to bottom,
-    transparent 0%,
-    var(--surface) 20%);
+  padding: 0 var(--unit-4) var(--unit-4);
+  background: none;
   display: flex;
   gap: var(--unit-2);
   align-items: flex-end;

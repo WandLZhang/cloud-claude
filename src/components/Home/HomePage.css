@@ -65,9 +65,7 @@
   position: sticky;
   bottom: 0;
   width: 100%;
-  background-color: var(--surface);
   z-index: 5;
-  transition: all 0.3s ease;
 }
 
 /* Mobile responsive */
