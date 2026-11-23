@@ -197,10 +197,12 @@ export const deleteMessage = async (userId, chatId, messageId) => {
   }
 };
 
+// A rename makes the title the user's: the chat function never replaces a 'manual' title.
 export const updateChatTitle = async (userId, chatId, newTitle) => {
   try {
     await updateDoc(doc(db, 'chats', userId, 'conversations', chatId), {
       title: newTitle,
+      titleSource: 'manual',
       updatedAt: serverTimestamp()
     });
   } catch (error) {

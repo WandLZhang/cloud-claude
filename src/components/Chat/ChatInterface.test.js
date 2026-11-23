@@ -212,6 +212,8 @@ test('sending from the home page opens the new conversation', async () => {
   await renderAt('/chat/chat-new-1', nav);
   expect(container.querySelector('.home-page')).toBeNull();
   expect(texts('.message-user')).toEqual(['hello']);
+  // The chat starts with an automatic title, which the chat function may replace.
+  expect(mockDb.chats.find((c) => c.id === 'chat-new-1')).toMatchObject({ title: 'hello', titleSource: 'auto' });
 });
 
 test('a message sent from the home page shows at once, before Firestore saves it', async () => {

@@ -173,7 +173,9 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
       // Create chat only on first message
       if (!chatId || ids.newChat) {
         // Include config in chat document for persistence across reloads
-        const chatData = { title: chatTitle(content, !!image) };
+        // An automatic title; the chat function replaces it with a short AI title unless the user
+        // renames the chat first (titleSource 'manual').
+        const chatData = { title: chatTitle(content, !!image), titleSource: 'auto' };
         if (newChatConfig.disableThinking) chatData.disableThinking = true;
         if (newChatConfig.useFastModel) chatData.useFastModel = true;
         if (newChatConfig.enableWebSearch) chatData.enableWebSearch = true;

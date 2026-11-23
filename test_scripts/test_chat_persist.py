@@ -17,15 +17,14 @@ Every request uses the fast model with thinking off, so a full run costs a few c
 import base64
 import json
 import os
-import struct
 import sys
 import time
 import urllib.error
 import urllib.request
-import zlib
 
 import firebase_admin
 from firebase_admin import auth, firestore
+from google.cloud.firestore_v1.base_query import FieldFilter
 
 CHAT_URL = os.environ.get("CHAT_URL", "http://localhost:8099/")
 PROJECT_ID = "wz-cloud-claude"
@@ -56,14 +55,19 @@ def id_token():
         return json.loads(r.read())["idToken"]
 
 
-def new_placeholder():
-    """A conversation with one user message and the empty streaming reply the app creates for it."""
+def new_placeholder(title="persist test", title_source=None, content="test"):
+    """A conversation with one user message and the empty streaming reply the app creates for it.
+    `title_source` is the chat's titleSource: 'auto' for a new chat from the app, 'manual' after a
+    rename, None for a chat from before titles were tracked."""
     chat = db.collection("chats").document(TEST_UID).collection("conversations").document()
-    chat.set({"title": "persist test", "lastMessage": "", "createdAt": firestore.SERVER_TIMESTAMP,
-              "updatedAt": firestore.SERVER_TIMESTAMP})
+    fields = {"title": title, "lastMessage": "", "createdAt": firestore.SERVER_TIMESTAMP,
+              "updatedAt": firestore.SERVER_TIMESTAMP}
+    if title_source:
+        fields["titleSource"] = title_source
+    chat.set(fields)
     created_chats.append(chat)
     user_msg = chat.collection("messages").document()
-    user_msg.set({"role": "user", "content": "test", "userId": TEST_UID,
+    user_msg.set({"role": "user", "content": content, "userId": TEST_UID,
                   "timestamp": firestore.SERVER_TIMESTAMP})
     reply = chat.collection("messages").document()
     reply.set({"role": "assistant", "content": "", "isStreaming": True, "replyTo": user_msg.id,
@@ -103,16 +107,6 @@ def wait_finished(reply, timeout):
         time.sleep(2)
         doc = reply.get().to_dict()
     return doc
-
-
-def noise_png(w, h):
-    """Random pixels, which PNG can't compress: w*h*3 bytes of image."""
-    raw = b"".join(b"\x00" + os.urandom(w * 3) for _ in range(h))
-
-    def chunk(t, d):
-        return struct.pack(">I", len(d)) + t + d + struct.pack(">I", zlib.crc32(t + d) & 0xFFFFFFFF)
-    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
-            + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b""))
 
 
 def report(name, checks):
@@ -191,7 +185,9 @@ def test_survives_disconnect(token):
 
 def test_saves_error(token):
     chat, reply = new_placeholder()
-    b64 = base64.b64encode(noise_png(1500, 1000)).decode()  # 6.0 MB base64, over Vertex's 5 MiB
+    # Bytes that aren't an image, sent as a PNG: the API rejects them. (A 6.0 MB base64 image was the
+    # trigger until 2026-11-23, when Vertex started accepting it.)
+    b64 = base64.b64encode(os.urandom(4000)).decode()
     body = payload("Describe this image.", chat, reply,
                    image={"url": f"data:image/png;base64,{b64}", "type": "image/png"})
     evs = [ev for _, ev in events(post(body, token), time.time())]
@@ -201,7 +197,7 @@ def test_saves_error(token):
     return report("saves an error", {
         "error event streamed": any(e["type"] == "error" for e in evs),
         "reply marked finished": doc.get("isStreaming") is False,
-        "error text saved": "exceeds 5 MB" in error,
+        "error text saved": "image" in error.lower(),
         "the API's message, not the raw exception dump": not error.startswith("Error code"),
     })
 
@@ -238,6 +234,106 @@ def test_rejects_unknown_message(token):
     })
 
 
+TITLE_PROMPT = "What can I use instead of buttermilk in pancakes? Answer in one sentence."
+EXAMPLE_TITLES = {"Japanese と思います plain-form rule", "Cantonese greetings with Jyutping",
+                  "Toddler fever and Tylenol dosing", "Lisbon four-day itinerary", "Sorting a Python dict by value"}
+
+
+def wait_title(chat, timeout):
+    """Poll the chat doc until the function gives it an AI title, or give up after `timeout` seconds."""
+    deadline = time.time() + timeout
+    doc = chat.get().to_dict()
+    while doc.get("titleSource") != "ai" and time.time() < deadline:
+        time.sleep(1)
+        doc = chat.get().to_dict()
+    return doc
+
+
+def test_titles_a_new_chat(token):
+    auto = "What can I use instead of buttermilk in pan..."
+    chat, reply = new_placeholder(title=auto, title_source="auto", content=TITLE_PROMPT)
+    for _ in events(post(payload(TITLE_PROMPT, chat, reply), token), time.time()):
+        pass
+    doc = wait_title(chat, 30)
+    title = doc.get("title") or ""
+    print(f"  title {title!r}, titleSource {doc.get('titleSource')!r}")
+    return report("titles a new chat from its first message", {
+        "titleSource is ai": doc.get("titleSource") == "ai",
+        "the automatic title was replaced": bool(title) and title != auto,
+        "not copied from the prompt's examples": title not in EXAMPLE_TITLES,
+        "names the subject": "buttermilk" in title.lower(),
+        "2 to 8 words": 2 <= len(title.split()) <= 8,
+        "60 characters or fewer": len(title) <= 60,
+        "no quotes or ending period": not any(c in title for c in '"“”') and not title.endswith("."),
+    })
+
+
+ONE_PIXEL_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
+
+
+def test_titles_instead_of_answering(token):
+    """A first message that tells Claude how to answer ("answer in one short sentence") gets a title,
+    not an answer. On 2026-11-23 the title model answered such a photo question instead."""
+    prompt = "What could have made this image? Think it over, then answer in one short sentence."
+    chat, reply = new_placeholder(title="What could have made this image? Think i...", title_source="auto", content=prompt)
+    body = payload(prompt, chat, reply, image={"url": f"data:image/png;base64,{ONE_PIXEL_PNG}", "type": "image/png"})
+    for _ in events(post(body, token), time.time()):
+        pass
+    doc = wait_title(chat, 30)
+    title = doc.get("title") or ""
+    print(f"  title {title!r}, titleSource {doc.get('titleSource')!r}")
+    return report("titles a message that asks for a short answer, instead of answering it", {
+        "titled on the first message": doc.get("titleSource") == "ai",
+        "a title, not a sentence": 2 <= len(title.split()) <= 8 and not title.endswith("."),
+    })
+
+
+def test_waits_for_the_material(token):
+    """A saved prompt sent alone ("Translate ...:") has no subject; the title waits for the next message."""
+    first = "Translate to colloquial Cantonese and Mandarin:"
+    chat, reply1 = new_placeholder(title=first, title_source="auto", content=first)
+    for _ in events(post(payload(first, chat, reply1), token), time.time()):
+        pass
+    time.sleep(8)
+    after_first = chat.get().to_dict()
+    answer = wait_finished(reply1, 30).get("content") or ""
+    user2 = chat.collection("messages").document()
+    user2.set({"role": "user", "content": "macaroni and cheese", "userId": TEST_UID, "timestamp": firestore.SERVER_TIMESTAMP})
+    reply2 = chat.collection("messages").document()
+    reply2.set({"role": "assistant", "content": "", "isStreaming": True, "replyTo": user2.id, "userId": TEST_UID,
+                "timestamp": firestore.SERVER_TIMESTAMP})
+    body = payload("macaroni and cheese", chat, reply2)
+    body["messages"] = [{"role": "user", "content": first}, {"role": "assistant", "content": answer},
+                        {"role": "user", "content": "macaroni and cheese"}]
+    for _ in events(post(body, token), time.time()):
+        pass
+    after_second = wait_title(chat, 30)
+    print(f"  after the first message {after_first.get('title')!r}/{after_first.get('titleSource')!r}; "
+          f"after the second {after_second.get('title')!r}/{after_second.get('titleSource')!r}")
+    return report("waits for the material when the first message is only a saved prompt", {
+        "first message leaves the automatic title": after_first.get("title") == first and after_first.get("titleSource") == "auto",
+        "second message brings an AI title": after_second.get("titleSource") == "ai",
+        "the title names the material": "macaroni" in (after_second.get("title") or "").lower(),
+    })
+
+
+def test_keeps_manual_and_older_titles(token):
+    manual, _ = new_placeholder(title="My own name", title_source="manual", content=TITLE_PROMPT)
+    older, _ = new_placeholder(title="Before titles were tracked", content=TITLE_PROMPT)
+    for chat in (manual, older):
+        reply = next(chat.collection("messages").where(filter=FieldFilter("role", "==", "assistant")).limit(1).stream()).reference
+        for _ in events(post(payload(TITLE_PROMPT, chat, reply), token), time.time()):
+            pass
+    time.sleep(10)   # longer than a title takes
+    manual_doc, older_doc = manual.get().to_dict(), older.get().to_dict()
+    print(f"  manual {manual_doc.get('title')!r}/{manual_doc.get('titleSource')!r}; "
+          f"older {older_doc.get('title')!r}/{older_doc.get('titleSource')!r}")
+    return report("keeps a manual title and leaves an older chat alone", {
+        "manual title kept": manual_doc.get("title") == "My own name" and manual_doc.get("titleSource") == "manual",
+        "older chat untouched": older_doc.get("title") == "Before titles were tracked" and "titleSource" not in older_doc,
+    })
+
+
 def test_no_persist_unchanged(token):
     evs = [ev for _, ev in events(post(payload("Reply with the single word OK.")), time.time())]
     done = evs[-1] if evs else {}
@@ -255,6 +351,8 @@ if __name__ == "__main__":
     try:
         for test in (test_status_arrives_first, test_saves_reply, test_saves_thinking_time, test_survives_disconnect,
                      test_saves_error, test_rejects_bad_token, test_rejects_unknown_message,
+                     test_titles_a_new_chat, test_titles_instead_of_answering, test_waits_for_the_material,
+                     test_keeps_manual_and_older_titles,
                      test_no_persist_unchanged):
             print(f"--- {test.__name__}")
             try:

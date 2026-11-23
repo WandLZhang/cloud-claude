@@ -33,7 +33,7 @@ jest.mock('firebase/storage', () => ({
 }));
 
 import * as firestore from 'firebase/firestore';
-import { touchChatOpened, newChatId, newMessageId, createChat, addMessage, subscribeToChat, subscribeToUserChats } from './firebase';
+import { touchChatOpened, newChatId, newMessageId, createChat, addMessage, subscribeToChat, subscribeToUserChats, updateChatTitle } from './firebase';
 
 describe('touchChatOpened', () => {
   beforeEach(() => {
@@ -119,5 +119,17 @@ describe('the listeners read an unconfirmed server timestamp as the local estima
     const received = [];
     subscribeToUserChats('user-1', (chats) => received.push(...chats));
     expect(received).toEqual([{ id: 'doc-1', updatedAt: 'LOCAL_ESTIMATE' }]);
+  });
+});
+
+// A chat's title is the user's once they rename it; the chat function only replaces an automatic one.
+describe('a rename marks the title as the user\'s', () => {
+  test('updateChatTitle saves titleSource manual with the new title', async () => {
+    firestore.doc.mockImplementation((first, ...path) => `DOC:${path.join('/')}`);
+    firestore.serverTimestamp.mockReturnValue('SERVER_TS');
+    firestore.updateDoc.mockResolvedValue(undefined);
+    await updateChatTitle('user-1', 'chat-9', 'My own name');
+    expect(firestore.updateDoc).toHaveBeenCalledWith('DOC:chats/user-1/conversations/chat-9',
+      { title: 'My own name', titleSource: 'manual', updatedAt: 'SERVER_TS' });
   });
 });

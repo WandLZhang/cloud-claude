@@ -40,6 +40,16 @@ async function savedReply(chatId, messageId) {
   };
 }
 
+// The chat doc's title and titleSource, read with the test user's ID token.
+async function savedChat(chatId) {
+  const url = `https://firestore.googleapis.com/v1/projects/${PROJECT}/databases/(default)/documents/`
+    + `chats/${session.user.uid}/conversations/${chatId}`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${session.user.stsTokenManager.accessToken}` } });
+  if (!res.ok) throw new Error(`Firestore read of chat ${chatId} failed: ${res.status} ${await res.text()}`);
+  const doc = await res.json();
+  return { title: doc.fields?.title?.stringValue ?? null, titleSource: doc.fields?.titleSource?.stringValue ?? null };
+}
+
 // The latest reply's id and the open chat's id.
 function latestReply(page) {
   return page.evaluate(() => {
@@ -244,6 +254,19 @@ function noisePng(page) {
 
   await waitForLatestReply(page);
   const photoReply = await latestReply(page);
+
+  // The new chat gets a short AI title (the chat function writes it beside the first turn), and the
+  // sidebar shows it.
+  let titled = await savedChat(photoReply.chatId);
+  for (let i = 0; i < 30 && titled.titleSource !== 'ai'; i++) {
+    await page.waitForTimeout(1000);
+    titled = await savedChat(photoReply.chatId);
+  }
+  const sidebarTitle = await page.evaluate(() => document.querySelector('.chat-item.active h3')?.textContent || '');
+  const titleStem = (titled.title || '').slice(0, 25);
+  check('a new chat gets a short AI title, and the sidebar shows it',
+    titled.titleSource === 'ai' && !!titled.title && titled.title.split(' ').length <= 8 && sidebarTitle.startsWith(titleStem),
+    { ...titled, sidebarTitle });
   const photoSaved = await savedReply(photoReply.chatId, photoReply.id);
   const nothingUnder = await page.evaluate(() => {
     const replies = document.querySelectorAll('.message-assistant');
@@ -356,7 +379,7 @@ function noisePng(page) {
   await tryThinkingToggle(await savedReply(retried.chatId, retried.id));
   if (!thinkingToggleTested) skip('"Thought for N s" opens the thinking', 'none of the three replies thought this run (Firestore saved no thinking)');
   const chatUrl = page.url();
-  const chatTitle = await page.evaluate(() => document.querySelector('.chat-item.active h3')?.textContent || '');
+  let chatTitle = await page.evaluate(() => document.querySelector('.chat-item.active h3')?.textContent || '');
 
   // Dark mode, then a cold load of the chat: from a blank page in the saved theme to the whole chat
   // in one step, with no light frame, no spinner, no entrance animation, and the bottom in view.
@@ -395,6 +418,21 @@ function noisePng(page) {
   await page.keyboard.press('Escape');
   await page.mouse.click(700, 450);
   await page.screenshot({ path: `${OUT}/ui-desktop-dark.png` });
+
+  // A rename in the sidebar makes the title the user's: the chat function never replaces it.
+  const renamed = 'Renamed by the UI test';
+  const active = page.locator('.chat-item.active');
+  await active.hover();
+  await active.locator('button[title="Rename chat"]').click();
+  await page.fill('.chat-title-input', renamed);
+  await page.keyboard.press('Enter');
+  let afterRename = await savedChat(new URL(chatUrl).pathname.split('/').pop());
+  for (let i = 0; i < 10 && afterRename.titleSource !== 'manual'; i++) {
+    await page.waitForTimeout(500);
+    afterRename = await savedChat(new URL(chatUrl).pathname.split('/').pop());
+  }
+  check('a rename in the sidebar saves the title as manual', afterRename.title === renamed && afterRename.titleSource === 'manual', afterRename);
+  chatTitle = renamed;
   await context.close();
 
   // ---------- phone ----------
