@@ -1,10 +1,11 @@
 // The UI end to end, signed in as the throwaway user (mint the session first; see test-navigation.js):
-// instant send with a photo, the elapsed status, the reply's ⋮ menu (model, Copy, Retry, thinking)
-// with nothing under the reply, code blocks, headings, tables, Retry, the sidebar's top row and
-// Ctrl+K, a cold load and a reopen (no light frame, spinner or entrance animation; the chat whole
-// and at the bottom), dark-mode menus, then the phone header, home and composer, including with the
-// keyboard up. Three real Claude replies; screenshots go to /tmp/cloud-claude-e2e/. A reply's menu
-// is checked against what Firestore saved: Claude's adaptive thinking skips some replies.
+// instant send with a photo, the elapsed status, a new chat's AI title, the reply's ⋮ menu (model,
+// Copy, Retry, thinking) with nothing under the reply, code blocks, headings, tables, Retry, the
+// sidebar's top row and Ctrl+K, a cold load and a reopen (no light frame, spinner or entrance
+// animation; the chat whole and at the bottom), dark-mode menus, a rename, then the phone header,
+// home and composer, including with the keyboard up, and a reply that finishes while Firestore's
+// live updates hang. Four real Claude replies; screenshots go to /tmp/cloud-claude-e2e/. A reply's
+// menu is checked against what Firestore saved: Claude's adaptive thinking skips some replies.
 //   NODE_PATH=$PWD/node_modules node test_scripts/test-ui.js
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
@@ -280,7 +281,7 @@ function noisePng(page) {
     !!photoMenu.model && photoMenu.items.some((i) => i.includes('Copy')) && photoMenu.items.some((i) => i.includes('Retry'))
     && photoMenu.items.some((i) => i.includes('Thought for')) === (photoSaved.thinkingChars > 0), { ...photoMenu, saved: photoSaved });
 
-  // The thinking toggle is tested on the first of the three replies that thought.
+  // The thinking toggle is tested on the first of the three desktop replies that thought.
   let thinkingToggleTested = false;
   const tryThinkingToggle = async (saved) => {
     if (thinkingToggleTested || saved.thinkingChars === 0) return;
@@ -377,7 +378,7 @@ function noisePng(page) {
     misplaced.length === 0, { framesSampled: sampled, misplacedFrames: misplaced.length, firstMisplaced: misplaced[0] || null });
   const retried = await latestReply(page);
   await tryThinkingToggle(await savedReply(retried.chatId, retried.id));
-  if (!thinkingToggleTested) skip('"Thought for N s" opens the thinking', 'none of the three replies thought this run (Firestore saved no thinking)');
+  if (!thinkingToggleTested) skip('"Thought for N s" opens the thinking', 'none of the three desktop replies thought this run (Firestore saved no thinking)');
   const chatUrl = page.url();
   let chatTitle = await page.evaluate(() => document.querySelector('.chat-item.active h3')?.textContent || '');
 
