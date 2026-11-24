@@ -192,6 +192,7 @@ export async function* streamMessageToClaud(previousMessages, newContent, image,
       usage: finalData.usage,
       cached: finalData.cached,
       model: finalData.model,
+      thinkingSeconds: finalData.thinking_seconds ?? null,
       citations: finalData.citations || null,
       web_search_queries: finalData.web_search_queries || null
     };

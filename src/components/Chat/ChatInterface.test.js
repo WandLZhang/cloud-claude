@@ -24,6 +24,7 @@ function mockReset() {
     chats: [], chatListeners: new Set(), messages: {}, messageListeners: {},
     nextChat: 0, nextMsg: 0, clock: 100, holdWrites: false, held: [], streamCalls: [],
     holdChatList: false, holdMessageLists: false, listRenders: [],
+    streamEvents: [{ type: 'done', content: '' }], resets: 0,
   });
 }
 
@@ -105,12 +106,18 @@ jest.mock('../../services/firebase', () => ({
   subscribeToUserChats: (userId, cb) => mockSubscribeChats(cb),
   subscribeToChat: (userId, chatId, cb) => mockSubscribeMessages(chatId, cb),
   logOut: async () => {},
+  resetConnection: async () => { mockDb.resets += 1; },
 }));
 
 jest.mock('../../services/messageService', () => ({
+  // The function's stream. The mock Firestore never receives the function's writes, like a phone whose
+  // live connection has gone quiet: only the stream carries the reply.
   streamMessageToClaud: async function* streamStub(...args) {
     mockDb.streamCalls.push(args);
-    yield { type: 'done', content: '' };
+    for (const event of mockDb.streamEvents) {
+      if (event.throwLost) throw Object.assign(new Error('network error'), { serverStarted: true });
+      yield event;
+    }
   },
 }));
 
@@ -121,7 +128,7 @@ jest.mock('./MessageList', () => {
   return function MessageListStub({ messages, latestReplyId, onRetry, chatId }) {
     mockDb.listRenders.push({ chatId, ids: messages.map((m) => m.id) });
     return React.createElement('div', { className: 'messages-stub' }, messages.map((m) => (
-      React.createElement('div', { key: m.id, className: `message-${m.role}` }, m.content,
+      React.createElement('div', { key: m.id, className: `message-${m.role}`, 'data-streaming': String(!!m.isStreaming) }, m.content,
         m.id === latestReplyId && onRetry
           ? React.createElement('button', { 'data-testid': 'retry', onClick: () => onRetry(m) }, 'retry')
           : null)
@@ -313,4 +320,40 @@ test('switching conversations never shows the previous one, and a reopened one s
 
   await renderAt('/chat/chat-a', nav);
   expect(texts('.message-user')).toEqual(['question a']);
+});
+
+test('a reply shows and finishes from the stream when Firestore stops delivering it, and the connection is reset', async () => {
+  mockDb.chats.push({ id: 'chat-old', title: 'Older chat', updatedAt: 1 });
+  mockDb.messages['chat-old'] = [{ id: 'u1', role: 'user', content: 'earlier question', timestamp: 1 }];
+  mockDb.streamEvents = [
+    { type: 'status', status: 'Thinking' },
+    { type: 'chunk', text: 'Stream ' },
+    { type: 'chunk', text: 'works' },
+    { type: 'done', content: 'Stream works', model: 'claude-opus-5' },
+  ];
+  await renderAt('/chat/chat-old', makeNavigator());
+
+  await act(async () => { container.querySelector('[data-testid="send"]').click(); });
+  await settle();
+  const reply = Array.from(container.querySelectorAll('.message-assistant')).pop();
+  expect(reply.textContent).toContain('Stream works');
+  expect(reply.getAttribute('data-streaming')).toBe('false');
+
+  // Firestore never confirms the finished reply, so the page resets its connection.
+  await settle(90);
+  expect(mockDb.resets).toBe(1);
+});
+
+test('a stream that breaks mid-reply resets the Firestore connection at once', async () => {
+  mockDb.chats.push({ id: 'chat-old', title: 'Older chat', updatedAt: 1 });
+  mockDb.messages['chat-old'] = [{ id: 'u1', role: 'user', content: 'earlier question', timestamp: 1 }];
+  mockDb.streamEvents = [{ type: 'chunk', text: 'Half a rep' }, { throwLost: true }];
+  await renderAt('/chat/chat-old', makeNavigator());
+
+  await act(async () => { container.querySelector('[data-testid="send"]').click(); });
+  await settle();
+  expect(mockDb.resets).toBe(1);
+  const reply = Array.from(container.querySelectorAll('.message-assistant')).pop();
+  expect(reply.textContent).toContain('Half a rep');
+  expect(reply.getAttribute('data-streaming')).toBe('true');   // the function is still on it
 });

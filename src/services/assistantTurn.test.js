@@ -100,3 +100,37 @@ test('marks the reply failed when there is no ID token', async () => {
   expect(calls.streamArgs).toBeNull();
   expect(calls.updates[0].updates).toEqual({ isStreaming: false, status: null, error: 'Not signed in' });
 });
+
+// The page shows the reply from this stream as well as from Firestore: a phone whose live Firestore
+// connection had gone quiet (on 2026-11-24 it listened over Wi-Fi while requests went over cellular)
+// got the whole reply over the stream and still showed "thinking".
+test('hands every stream event to onEvent with the reply\'s id', async () => {
+  const seen = [];
+  const { deps } = fakes({
+    stream: async function* () {
+      yield { type: 'status', status: 'Thinking' };
+      yield { type: 'chunk', text: 'Hi' };
+      yield { type: 'done', content: 'Hi' };
+    },
+  });
+  deps.onEvent = (messageId, event) => seen.push([messageId, event.type]);
+
+  await runAssistantTurn(TURN, deps);
+
+  expect(seen).toEqual([['m1', 'status'], ['m1', 'chunk'], ['m1', 'done']]);
+});
+
+test('tells onEvent when the stream breaks after the function started, so the page can reset Firestore', async () => {
+  const seen = [];
+  const { deps } = fakes({
+    stream: async function* () {
+      yield { type: 'chunk', text: 'Hi' };
+      throw failure('network error', true);
+    },
+  });
+  deps.onEvent = (messageId, event) => seen.push([messageId, event.type]);
+
+  await expect(runAssistantTurn(TURN, deps)).resolves.toBe('m1');
+
+  expect(seen).toEqual([['m1', 'chunk'], ['m1', 'lost']]);
+});

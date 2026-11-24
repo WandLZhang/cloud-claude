@@ -567,6 +567,35 @@ function noisePng(page) {
   check('the header star fills when tapped and leaves no hover mark',
     starAfterTap.filled && starAfterTap.background === 'rgba(0, 0, 0, 0)' && starAfterTap.hoverCircle === '0px', starAfterTap);
   await page.screenshot({ path: `${OUT}/ui-phone-chat.png` });
+
+  // A quiet Firestore connection: live updates stop while requests still work, as on a phone that
+  // listened over Wi-Fi while it sent over cellular (2026-11-24). The reply still streams in and
+  // finishes from the function's stream, and the page resets its Firestore connection.
+  const resetLogs = [];
+  page.on('console', (m) => { if (m.text().includes('resetting the Firestore connection')) resetLogs.push(m.text()); });
+  await page.route((url) => url.hostname === 'firestore.googleapis.com' && url.pathname.includes('/Listen/'), () => {});
+  await context.setOffline(true);   // drops the open Listen requests; new ones hang on the route
+  await page.waitForTimeout(1500);
+  await context.setOffline(false);
+  await page.waitForTimeout(1500);
+  const repliesBefore = await page.locator('.message-assistant').count();
+  await page.fill('textarea.chat-input', 'Reply with exactly: shown from the stream');
+  await page.click('button[aria-label="Send message"]');
+  let stalled = null;
+  for (let i = 0; i < 90; i++) {
+    stalled = await page.evaluate(() => {
+      const r = document.querySelectorAll('.message-assistant');
+      const last = r[r.length - 1];
+      return { replies: r.length, text: (last?.querySelector('.message-content')?.innerText || '').slice(0, 60),
+               finished: !!last?.querySelector('.reply-menu') };
+    });
+    if (stalled.replies === repliesBefore + 1 && stalled.finished && stalled.text.includes('shown from the stream')) break;
+    await page.waitForTimeout(1000);
+  }
+  await page.waitForTimeout(4000);
+  check("with Firestore's live updates stalled, a reply still arrives and finishes, and the page resets the connection",
+    stalled.replies === repliesBefore + 1 && stalled.finished && stalled.text.includes('shown from the stream') && resetLogs.length > 0,
+    { ...stalled, repliesBefore, resetLogs: resetLogs.length });
   await context.close();
 
   // A 411 px phone in Chrome at 120% page zoom lays the page out 343 px wide.

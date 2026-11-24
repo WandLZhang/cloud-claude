@@ -21,7 +21,9 @@ import {
   limit,
   startAfter,
   onSnapshot,
-  serverTimestamp
+  serverTimestamp,
+  disableNetwork,
+  enableNetwork
 } from 'firebase/firestore';
 import { 
   getStorage, 
@@ -69,6 +71,15 @@ export const signInWithGoogle = async () => {
 };
 
 export const logOut = () => signOut(auth);
+
+// Drop and reopen Firestore's connection. A listener on a network path that went quiet delivers
+// nothing until the SDK notices, which can take minutes: on 2026-11-24 a phone listened over Wi-Fi
+// while its requests went over cellular, and a finished reply never reached the screen.
+export const resetConnection = async () => {
+  console.warn('[firebase] resetting the Firestore connection');
+  await disableNetwork(db);
+  await enableNetwork(db);
+};
 
 // New document ids, made on the device without a write. Sending uses them so the page can open the
 // chat and show the message at once, before Firestore confirms the writes.

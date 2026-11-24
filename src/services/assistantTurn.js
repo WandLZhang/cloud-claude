@@ -12,10 +12,12 @@
  * (HTTP error, no network, no ID token). Once the stream has started, the function owns the reply
  * and saves its outcome, even if this page loses the stream.
  *
- * `deps` carries the side effects: { addMessage, updateMessage, getIdToken, stream }.
+ * `deps` carries the side effects: { addMessage, updateMessage, getIdToken, stream }, and optionally
+ * onEvent(messageId, event), which gets every stream event so the page can show the reply from the
+ * stream while Firestore's live connection lags or has gone quiet.
  */
 export async function runAssistantTurn({ userId, chatId, userMessageId, history, content, image, config }, deps) {
-  const { addMessage, updateMessage, getIdToken, stream } = deps;
+  const { addMessage, updateMessage, getIdToken, stream, onEvent } = deps;
   const messageId = await addMessage(userId, chatId, {
     role: 'assistant',
     content: '',
@@ -28,10 +30,12 @@ export async function runAssistantTurn({ userId, chatId, userMessageId, history,
     const idToken = await getIdToken();
     for await (const event of stream(history, content || '', image, config, { chatId, messageId, idToken })) {
       if (event.type !== 'chunk') console.log('[assistantTurn] event:', event);
+      if (onEvent) onEvent(messageId, event);
     }
   } catch (error) {
     if (error.serverStarted) {
       console.warn('[assistantTurn] lost the stream; the function keeps going and saves the reply:', error);
+      if (onEvent) onEvent(messageId, { type: 'lost' });
     } else {
       console.error('[assistantTurn] the turn never started:', error);
       await updateMessage(userId, chatId, messageId, { isStreaming: false, status: null, error: error.message });

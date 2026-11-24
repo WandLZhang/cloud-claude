@@ -1,11 +1,12 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   auth,
   subscribeToChat,
   addMessage,
   createChat,
   updateMessage,
-  uploadImage
+  uploadImage,
+  resetConnection
 } from '../services/firebase';
 import { streamMessageToClaud } from '../services/messageService';
 import { runAssistantTurn } from '../services/assistantTurn';
@@ -45,6 +46,35 @@ function anchorReplies(sorted) {
 
 const NO_MESSAGES = [];
 
+// How long a reply the stream has finished may wait for Firestore to confirm it before the page
+// resets its Firestore connection.
+export const STREAM_CONFIRM_MS = 3000;
+
+/**
+ * Each reply as the page shows it: Firestore's copy, overlaid with what the function's stream has
+ * said about it (`streamed`, by reply id) until Firestore has the outcome (isStreaming false). The
+ * stream arrives on the same request that sent the message, so a quiet Firestore connection can no
+ * longer hold a finished reply at "thinking".
+ */
+export function overlayStreamed(messages, streamed) {
+  return messages.map((m) => {
+    const s = m.role === 'assistant' ? streamed[m.id] : null;
+    if (!s || m.isStreaming === false) return m;
+    return {
+      ...m,
+      content: (s.content || '').length >= (m.content || '').length ? s.content : m.content,
+      isStreaming: !s.done,
+      status: s.done ? null : (s.status ?? m.status ?? null),
+      error: s.error ?? m.error,
+      thinking: s.thinking ?? m.thinking,
+      thinkingSeconds: s.thinkingSeconds ?? m.thinkingSeconds,
+      model: s.model ?? m.model,
+      citations: s.citations ?? m.citations,
+      streamUpdatedAt: s.at ? { toDate: () => new Date(s.at) } : m.streamUpdatedAt,
+    };
+  });
+}
+
 export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) {
   // The messages Firestore delivered last, and the chat they belong to.
   const [loaded, setLoaded] = useState({ chatId: null, messages: NO_MESSAGES });
@@ -54,14 +84,62 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
   const cacheRef = useRef(new Map());
   const messagesRef = useRef(NO_MESSAGES);
   const chatConfigRef = useRef(selectedChatConfig);
+  // What the function's stream has said about each reply this session, by reply id. Chunks reach the
+  // screen at most every 100 ms; done and error at once.
+  const [streamed, setStreamed] = useState({});
+  const streamedRef = useRef({});
+  const flushTimerRef = useRef(null);
+  const resetForRef = useRef(new Set());
 
   // The URL names the open chat (selectedChatId). Until that chat's first snapshot arrives, show
   // what this session kept of it, never the chat shown before.
   const currentChatId = selectedChatId;
-  const messages = loaded.chatId === currentChatId
+  const firestoreMessages = loaded.chatId === currentChatId
     ? loaded.messages
     : (cacheRef.current.get(currentChatId) || NO_MESSAGES);
+  const messages = useMemo(() => overlayStreamed(firestoreMessages, streamed), [firestoreMessages, streamed]);
   const loading = !!currentChatId && loaded.chatId !== currentChatId && !cacheRef.current.has(currentChatId);
+
+  const onStreamEvent = useCallback((messageId, event) => {
+    const prev = streamedRef.current[messageId] || { content: '', done: false };
+    const at = Date.now();
+    let next = prev;
+    if (event.type === 'chunk') next = { ...prev, content: prev.content + (event.text || ''), at };
+    else if (event.type === 'status') next = { ...prev, status: event.status, at };
+    else if (event.type === 'done') {
+      next = { ...prev, done: true, content: event.content ?? prev.content, thinking: event.thinking,
+        thinkingSeconds: event.thinkingSeconds, model: event.model, citations: event.citations, at };
+    } else if (event.type === 'error') next = { ...prev, done: true, error: event.error, at };
+    else if (event.type === 'lost' && !resetForRef.current.has(messageId)) {
+      // The phone likely changed networks mid-reply. The function still saves the reply; a fresh
+      // Firestore connection brings it in.
+      resetForRef.current.add(messageId);
+      console.warn('[useChat] lost the stream of', messageId, '; resetting the Firestore connection');
+      resetConnection().catch((e) => console.error('[useChat] resetting the Firestore connection failed:', e));
+    }
+    streamedRef.current = { ...streamedRef.current, [messageId]: next };
+    const flush = () => { flushTimerRef.current = null; setStreamed(streamedRef.current); };
+    if (event.type === 'done' || event.type === 'error') {
+      if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
+      flush();
+    } else if (!flushTimerRef.current) {
+      flushTimerRef.current = setTimeout(flush, 100);
+    }
+  }, []);
+
+  // A reply the stream finished that Firestore still shows as streaming after STREAM_CONFIRM_MS
+  // means its connection has gone quiet: reset it, once per reply.
+  useEffect(() => {
+    const waiting = firestoreMessages.filter((m) => m.role === 'assistant' && m.isStreaming !== false
+      && streamed[m.id]?.done && !resetForRef.current.has(m.id));
+    if (waiting.length === 0) return undefined;
+    const timer = setTimeout(() => {
+      waiting.forEach((m) => resetForRef.current.add(m.id));
+      console.warn('[useChat] Firestore has not confirmed finished replies; resetting its connection:', waiting.map((m) => m.id));
+      resetConnection().catch((e) => console.error('[useChat] resetting the Firestore connection failed:', e));
+    }, STREAM_CONFIRM_MS);
+    return () => clearTimeout(timer);
+  }, [firestoreMessages, streamed]);
   
   // Keep chatConfigRef in sync with chatConfig state
   useEffect(() => {
@@ -150,7 +228,8 @@ export function useChat(userId, selectedChatId = null, selectedChatConfig = {}) 
       return auth.currentUser.getIdToken();
     },
     stream: streamMessageToClaud,
-  }), [userId]);
+    onEvent: onStreamEvent,
+  }), [userId, onStreamEvent]);
 
   /**
    * `ids` lets the caller name the documents up front so it can show the message before the writes
